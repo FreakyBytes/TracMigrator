@@ -29,15 +29,34 @@ class WikiConverter(object):
 
     def _convert_inline_links(self, text):
         
-        return self._re_inline_link.(self_callback_inline_links, text)
+        return self._re_inline_links.(self.callback_inline_links, text)
 
     def _callback_inline_links(self, match):
-        
+        # TODO take special care of Issue links (#1234) and changesets/commits (?)
         return "{prefix}{link_type}/{link}".format(
                 prefix=self.prefixes[match.group('target')] or '',
                 link_type=match.group('type') or 'wiki',
                 link=match.group('name') or '',
             )
+
+    def _convert_marked_links(self, text):
+        
+        return self._re_marked_links(self.callback_marked_links, text)
+
+    def _callback_marked_links(self, match):
+        
+        if( match.group('macro') ):
+            # handle at least image macros
+            pass
+        elif( not match.group('name') ):
+            # hanlde simple marked links w/o a name
+            # links, that are not named do not need special escaping
+            return self._convert_inline_links(match.group('link'))
+        else:
+            # handle named marked links
+            return '[{name}]({link})'.format(
+                name=match.group('name'),
+                link=self._convert_inline_links(match.gropu('link'))
 
 
 
