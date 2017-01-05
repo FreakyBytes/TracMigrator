@@ -27,19 +27,19 @@ def listTracEnvironments(base_url, timeout=15):
     if not r:
         raise TracError('HTTP response object is None')
     if r.status_code != 200:
-        raise TracError('Unexpected HTTP status code {code}: {msg}'.format(code=r.status_code, msg=r.reason)
+        raise TracError('Unexpected HTTP status code {code}: {msg}'.format(code=r.status_code, msg=r.reason))
 
     try:
         content = r.raw.read()
         r.raw.close()
-        
+
         envs = []
         for match in _re_env_list.finditer(content):
             envs.append({
                 'trac_id': match.group('text'),
                 'name': match.group('title') or None,
                 'url': match.group('link'),
-            }
+            })
 
         r.close()
         return envs
@@ -50,7 +50,7 @@ def listTracEnvironments(base_url, timeout=15):
 
 class Trac(object):
     
-    def __init__(self, base_url, trac_id, user=None, password=None, timeout=5)
+    def __init__(self, base_url, trac_id, user=None, password=None, timeout=5):
         self.base_url = base_url
         self.trac_id = trac_id
         self.trac_url = urlparse.urljoin(self.base_url, self.trac_id)
@@ -59,7 +59,7 @@ class Trac(object):
         self.rpc_url = urlparse.urljoin(self.trac_url, 'login/jsonrpc' if self.user else 'jsonrpc')
         self.timeout = timeout
 
-        self.log = logging.getLogger('trac.{id}'.format(id=self.trac_id)
+        self.log = logging.getLogger('trac.{id}'.format(id=self.trac_id))
 
     def _call(self, endpoint, *args):
         """
@@ -70,7 +70,7 @@ class Trac(object):
                 'params': args,
             }
         
-        self.log.debug("Query {endpoint}({args})".format(endpoint=endpoint, args=', '.join(args))
+        self.log.debug("Query {endpoint}({args})".format(endpoint=endpoint, args=', '.join(args)))
         r = requests.post(
                     self.rpc_url,
                     json={
@@ -85,21 +85,21 @@ class Trac(object):
                 )
 
         if not r:
-            self.log.error('HTTP response object is None'
+            self.log.error('HTTP response object is None')
             raise TracError('HTTP response object is None')
 
         if r.status_code != 200:
-            self.log.error('Unexpected HTTP status code {code}: {msg}'.format(code=r.status_code, msg=r.reason)
-            raise TracError('Unexpected HTTP status code {code}: {msg}'.format(code=r.status_code, msg=r.reason)
+            self.log.error('Unexpected HTTP status code {code}: {msg}'.format(code=r.status_code, msg=r.reason))
+            raise TracError('Unexpected HTTP status code {code}: {msg}'.format(code=r.status_code, msg=r.reason))
 
         # normal JSON parsing - no binary result expected
         try:
             result = r.json()
             r.close()
 
-            if result['error'] not None:
+            if result['error'] is not None:
                 # error handling
-                error_msg = 'Trac error, while calling {endpoint}({args}): {msg}'.format(endpoint=endpoint, args=', '.join(args), msg=result['error']['message']
+                error_msg = 'Trac error, while calling {endpoint}({args}): {msg}'.format(endpoint=endpoint, args=', '.join(args), msg=result['error']['message'])
                 self.log.error(error_msg)
                 raise TracError(error_msg)
 
@@ -120,9 +120,9 @@ class Trac(object):
         if hint['__json_class__'][0] == 'datetime':
             # let's parse datetime!
             return datetime.strptime(hint['__json_class__'][1], '%Y-%m-%dT%H:%M:%S')
-        elif hint['__json_class__'][0] = 'binary':
+        elif hint['__json_class__'][0] == 'binary':
             # let's decode BASE64!
-            return base64.base64decode(datetime.strptime(hint['__json_class__'][1])
+            return base64.base64decode(datetime.strptime(hint['__json_class__'][1]))
 
     def listWikiPages(self):
         return self._call('wiki.getAllPages')
