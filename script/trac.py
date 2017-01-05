@@ -7,16 +7,50 @@ import logging
 import requests
 import json
 import urllib.parse as urlparse
+from datetime import datetime
+import base64
+import re
+
+# regex to match all environment links, shown in the trac base url
+_re_env_list = re.compile(r'<a href=\"(?P<link>[\w\d\/]+)\"(?:.*?)(?:title=\"(?P<title>[\w\d\-_ ]+)\")(?:.*?)>(?:\s*)(?P<text>.+?)(?:\s*)</a>', re.IGNORECASE | re.MULTILINE | re.DOTALL | re.UNICODE)
 
 class TracError(Exception):
     
     def __init__(self, message, *args, **kwargs):
-        super(Exception, self).__init__(message, *args, **kwargs):
+        super(Exception, self).__init__(message, *args, **kwargs)
+
+
+def listTracEnvironments(base_url, timeout=15):
+    
+    r = requests.get(base_url, timeout=timeout, stream=True)
+
+    if not r:
+        raise TracError('HTTP response object is None')
+    if r.status_code != 200:
+        raise TracError('Unexpected HTTP status code {code}: {msg}'.format(code=r.status_code, msg=r.reason)
+
+    try:
+        content = r.raw.read()
+        r.raw.close()
+        
+        envs = []
+        for match in _re_env_list.finditer(content):
+            envs.append({
+                'trac_id': match.group('text'),
+                'name': match.group('title') or None,
+                'url': match.group('link'),
+            }
+
+        r.close()
+        return envs
+
+    except BaseException as e:
+        raise TracError('Exception while parsing environment list', e)
 
 
 class Trac(object):
     
-    def __init__(self, base_url, trac_id, user=None, password=None, timeout=5):
+    def __init__(self, base_url, trac_id, user=None, password=None, timeout=5)
         self.base_url = base_url
         self.trac_id = trac_id
         self.trac_url = urlparse.urljoin(self.base_url, self.trac_id)
@@ -46,6 +80,7 @@ class Trac(object):
                     headers={'Content-Type': 'application/json'},
                     auth=(self.user, self.password) if self.user else None,
                     allow_redirects=True,
+                    stream=True,
                     timeout=self.timeout,
                 )
 
@@ -57,8 +92,11 @@ class Trac(object):
             self.log.error('Unexpected HTTP status code {code}: {msg}'.format(code=r.status_code, msg=r.reason)
             raise TracError('Unexpected HTTP status code {code}: {msg}'.format(code=r.status_code, msg=r.reason)
 
+        # normal JSON parsing - no binary result expected
         try:
             result = r.json()
+            r.close()
+
             if result['error'] not None:
                 # error handling
                 error_msg = 'Trac error, while calling {endpoint}({args}): {msg}'.format(endpoint=endpoint, args=', '.join(args), msg=result['error']['message']
@@ -71,6 +109,21 @@ class Trac(object):
         except ValueError as e:
             raise TracError("Result is no valid JSON", e)
 
+
+    def convertClassHint(self, hint):
+        if not isinstance(hint, map):
+            raise TracError('Class Hint is expected to be a map')
+
+        if not '__jsonclass__' in hint:
+            raise TracError('No Class Hint found')
+
+        if hint['__json_class__'][0] == 'datetime':
+            # let's parse datetime!
+            return datetime.strptime(hint['__json_class__'][1], '%Y-%m-%dT%H:%M:%S')
+        elif hint['__json_class__'][0] = 'binary':
+            # let's decode BASE64!
+            return base64.base64decode(datetime.strptime(hint['__json_class__'][1])
+
     def listWikiPages(self):
         return self._call('wiki.getAllPages')
 
@@ -81,7 +134,46 @@ class Trac(object):
         return self._call('wiki.listAttachments', pagename)
 
     def getWikiAttachement(self, path):
-        return self._call('wiki.getAttachment', path)
+        return self.convertClassHint(self._call('wiki.getAttachment', path))
 
+    def queryTickets(self, query):
+        return self._call('ticket.query', query)
+
+    def listTickets(self):
+        ticket_list = self.queryTickets('max=0')
+        if ticket_list and isinstance(ticket_list, (list, tuple)):
+            ticket_list.sort()
+
+        return ticket_list
+
+    def getTicket(self, ticket_id):
+        ticket = self._call('ticket.get', ticket_id)
+        if not ticket or not isinstance(ticket, (list, tuple)):
+            raise TracError('Got unexpected datatype back')
+        
+        # only return necessary information
+        return {
+            'ticket_id': ticket[0],
+            'time_created': self.convertClassHint(ticket[1]),
+            'time_changed': self.convertClassHint(ticket[2]),
+            'attributes': ticket[3],
+        }
+
+    def getTicketChangeLog(self, ticket_id):
+        change_log = self._call('ticket.changeLog', ticket_id)
+
+        # convert dates into datetime objects and the single entries into a map
+        result = []
+        for log_entry in change_log:
+            result.append({
+                'time': self.convertClassHint(log_entry[0]),
+                'author': log_entry[1],
+                'field': log_entry[2],
+                'old_value': log_entry[3],
+                'new_value': log_entry[4],
+                'permanent': True if log_entry[5] == 1 else False,
+            })
+
+        return result
         
 
