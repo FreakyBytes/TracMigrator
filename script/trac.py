@@ -30,21 +30,15 @@ def listTracEnvironments(base_url, timeout=15):
         raise TracError('Unexpected HTTP status code {code}: {msg}'.format(code=r.status_code, msg=r.reason))
 
     try:
-        content = r.raw.read()
-        r.raw.close()
-
-        envs = []
-        for match in _re_env_list.finditer(content):
-            envs.append({
+        for match in _re_env_list.finditer(r.text):
+            yield {
                 'trac_id': match.group('text'),
                 'name': match.group('title') or None,
                 'url': match.group('link'),
                 'enabled': True,
-            })
+            }
 
         r.close()
-        return envs
-
     except BaseException as e:
         raise TracError('Exception while parsing environment list', e)
 

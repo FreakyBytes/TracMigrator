@@ -25,7 +25,7 @@ def load_config(path):
             'user': None,
             'password': None,
         },
-        'environments': {},
+        'environments': [],
     }
     
     try:
@@ -39,12 +39,18 @@ def load_config(path):
 
 def save_config(path, config):
     with open(path, 'w') as fs:
-        yaml.dump(config, encoding=None, stream=fs)
+        yaml.dump(
+                config,
+                encoding=None,
+                stream=fs,
+                default_style=None,
+                default_flow_style=False,
+            )
 
 
 if __name__ == '__main__':
     # main entry
-    main_parser = argparse.ArgumentParser()
+    main_parser = argparse.ArgumentParser(conflict_handler='resolve')
     main_parser.add_argument('command', choices=('get-envs', 'migrate', 'save-config'))
     main_parser.add_argument('-c', '--config', help='path to the config file', default='config.yml')
     args = main_parser.parse_args()
@@ -59,10 +65,27 @@ if __name__ == '__main__':
 
     elif args.command == 'get-envs':
         # get available envs and store them in the config
-        envs_parser = argparse.ArgumentParser(parents=(main_parser,))
+        envs_parser = argparse.ArgumentParser(parents=(main_parser,), conflict_handler='resolve')
         envs_parser.add_argument('--override', help='overrides existing environments in the config', default=False, action='store_true')
+        args = envs_parser.parse_args()
+        
+        env_map = {}
+        if args.override is True:
+            # remove old environments from config
+            config['environments'] = []
+        else:
+            # create mapping from env trac_ids to list indexies
+            for index, env in enumerate(config['environments']):
+                if env['trac_id']:
+                    env_map[env['trac_id']] = index
+            
+        for env in  trac.listTracEnvironments(config['trac']['base_url'], timeout=config['trac']['timeout']):
+            log.info('Found Trac environment {id}'.format(id=env['trac_id']))
+            if env['trac_id'] in env_map:
+                continue
 
-
-
+            config['environments'].append(env)
+        
+        save_config(args.config, config)
     elif args.command == 'migrate':
         pass
