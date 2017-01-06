@@ -36,6 +36,7 @@ def listTracEnvironments(base_url, timeout=15):
                 'name': match.group('title') or None,
                 'url': match.group('link'),
                 'github_project': None,
+                'git_repository': None,
                 'enabled': True,
             }
 

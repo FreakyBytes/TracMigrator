@@ -11,12 +11,16 @@ import logging
 import wiki
 import trac
 
+from github.MainClass import Github
+
+logging.basicConfig(level=logging.WARN, format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s')
 log = logging.getLogger('TracMigrator')
+log.setLevel(logging.INFO)
 
 def load_config(path):
     config = {
         'github': {
-            'key': None,
+            'token': None,
             'default_namespace': None
         },
         'trac': {
@@ -55,6 +59,10 @@ def do_save_config(args):
     save_config(args.config, config)
 
 
+def migrate_project(env, github=None):
+    pass
+
+
 def do_get_envs(args):
     # get available envs and store them in the config
 
@@ -80,6 +88,24 @@ def do_get_envs(args):
 
 def do_migrate(args):
     pass
+
+    if args.dry_run is False:
+        # results are supposed to be pushed to github (default)
+        # better check if github is reachable
+        github = Github(config['github']['token'])
+        if not github.get_user():
+            log.error('Error accessing GitHub')
+            return
+    else:
+        github = None
+
+    for env in config['environments']:
+        if env['enabled'] is False:
+            continue
+
+        # do the work
+        log.info('Start migrating project {}'.format(env['trac_id']))
+        migrate_project(env, github=github)
 
 
 if __name__ == '__main__':
