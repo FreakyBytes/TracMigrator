@@ -12,7 +12,7 @@ import base64
 import re
 
 # regex to match all environment links, shown in the trac base url
-_re_env_list = re.compile(r'<a href=\"(?P<link>[\w\d\/]+)\"(?:.*?)(?:title=\"(?P<title>[\w\d\-_ ]+)\")(?:.*?)>(?:\s*)(?P<text>.+?)(?:\s*)</a>', re.IGNORECASE | re.MULTILINE | re.DOTALL | re.UNICODE)
+_re_env_list = re.compile(r'<a href=\"(?P<link>[\w\d\/\-_]+)\"(?:.*?)(?:title=\"(?P<title>[\w\d\-_ ]+)\")(?:.*?)>(?:\s*)(?P<text>.+?)(?:\s*)</a>', re.IGNORECASE | re.MULTILINE | re.DOTALL | re.UNICODE)
 
 class TracError(Exception):
     

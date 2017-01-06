@@ -114,13 +114,16 @@ def do_get_envs(args):
             if env['trac_id']:
                 env_map[env['trac_id']] = index
         
+    count = 0
     for env in  trac.listTracEnvironments(config['trac']['base_url'], timeout=config['trac']['timeout']):
         log.info('Found Trac environment {id}'.format(id=env['trac_id']))
         if env['trac_id'] in env_map:
             continue
 
         config['environments'].append(env)
+        count += 1
     
+    log.info('Found {} new Trac environments'.format(count))
     save_config(args.config, config)
 
 
@@ -137,6 +140,7 @@ def do_migrate(args):
     else:
         github = None
 
+    count = 0
     for env in config['environments']:
         if env['enabled'] is False:
             continue
@@ -144,6 +148,9 @@ def do_migrate(args):
         # do the work
         log.info('Start migrating project {}'.format(env['trac_id']))
         migrate_project(env, github=github, create_repo=args.create)
+        count += 1
+
+    log.info('Migrated {} projects'.format(count))
 
 
 if __name__ == '__main__':
