@@ -39,6 +39,7 @@ def listTracEnvironments(base_url, timeout=15):
                 'trac_id': match.group('text'),
                 'name': match.group('title') or None,
                 'url': match.group('link'),
+                'enabled': True,
             })
 
         r.close()
