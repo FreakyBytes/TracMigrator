@@ -7,6 +7,7 @@ import yaml
 import requests
 import argparse
 import logging
+import re
 
 import wiki
 import trac
@@ -16,6 +17,9 @@ from github.MainClass import Github
 logging.basicConfig(level=logging.WARN, format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s')
 log = logging.getLogger('TracMigrator')
 log.setLevel(logging.INFO)
+
+# regex to analyse GitHub repo ids (e.g. FreakyBytes/TracMigrator, or just TracMigrator)
+_re_github_repo_name = re.compile(r'^(?:(?P<namespace>[\w\d]+)/)?(?P<repo>[\w\d]+)$', re.IGNORECASE | re.UNICODE)
 
 def load_config(path):
     config = {
@@ -51,16 +55,50 @@ def save_config(path, config):
                 default_flow_style=False,
             )
 
+
+def parse_repo_name(name, default_namespace=None):
+    """
+    takes in strings like 'FreakyBytes/TracMigrator' and 'TracMigrator' and
+    return (namespace, repo_name)
+    """
+    if not name:
+        return (None, None)
+
+    match = _re_github_repo_name.match(name)
+    if not match:
+        return (None, None)
+    
+    groups = match.groupdict()
+    return (groups.get('namespace', default_namespace) or default_namespace, groups.get('repo', None))
+
+
+def migrate_project(env, github=None, create_repo=False):
+
+    if github:
+        repo_name = '/'.join(filter(None, parse_repo_name(env['github_project'] or env['trac_id'], config['github']['default_namespace'])))
+        try:
+            log.info("Try to find GitHub repo '{repo_name}'".format(repo_name=repo_name))
+            github_repo = github.get_repo(repo_name)
+            # try accessing the name, since the object is lazy loaded
+            # if the repos does not exist yet, it will throw an exception
+            github_repo.name
+        except:
+            if create_repo is True:
+                log.warn("Could not get GitHub Repo '{repo_name}' for Trac Env '{trac_id}'. Attempting to create it...".format(repo_name=repo_name, trac_id=env['trac_id']))
+                github_repo = github.get_user().create_repo(repo_name)
+            else: 
+                log.error("Could not get GitHub Repo '{repo_name}' for Trac Env '{trac_id}'".format(repo_name=repo_name, trac_id=env['trac_id']))
+                return
+    #import pdb; pdb.set_trace()
+    return
+
+
 def do_save_config(args):
     """
     Just takes the loaded config and saves it again.
     Good for generating a empty config template
     """
     save_config(args.config, config)
-
-
-def migrate_project(env, github=None):
-    pass
 
 
 def do_get_envs(args):
@@ -105,7 +143,7 @@ def do_migrate(args):
 
         # do the work
         log.info('Start migrating project {}'.format(env['trac_id']))
-        migrate_project(env, github=github)
+        migrate_project(env, github=github, create_repo=args.create)
 
 
 if __name__ == '__main__':
@@ -126,6 +164,7 @@ if __name__ == '__main__':
     # migrate
     migrate_parser = subparsers.add_parser('migrate', help="migrates the Trac repositories")
     migrate_parser.add_argument('--dry-run', help='does not push anything to GitHub', default=False, action='store_true')
+    migrate_parser.add_argument('--create', help='creates all non-existing repositories on GitHub - this can get messy', default=False, action='store_true')
     migrate_parser.set_defaults(func=do_migrate)
 
     # parse it...
