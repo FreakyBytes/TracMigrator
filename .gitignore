@@ -1,2 +1,6 @@
 *.swp
 *.log
+*.pyc
+*.pyo
+__pycache__
+script/config.yml
