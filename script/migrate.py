@@ -127,6 +127,10 @@ def migrate_project(env, github=None, create_repo=False):
 
 def migrate_tickets(env, trac, local_repo, github_repo, converter):
     
+    if not github:
+        log.warn("Skipping ticket migration, due to dry-run flag")
+        return
+
     # check if tickets already exist at GitHub
     if len(github_repo.get_issues()) > 0:
         # we cannot assure consistent ticket numbers, when already issues exist
@@ -247,6 +251,27 @@ def migrate_wiki(env, trac, local_repo, github_repo):
     local_repo.index.commit('converted wiki pages')
 
     return converter
+
+
+def migrate_git_repo(env, trac, local_repo, github_repo):
+    
+    if not github_repo:
+        log.warn("Skip git migration, due to dry-run flag")
+        return
+    
+    # create a new remote, and if exists, checks the url
+    try:
+        remote = local_repo.create_remote('github', github_repo.ssh_url)
+    except:
+        remote = local_repo.remotes['github']
+        if github_repo.ssh_url not in remote.urls:
+            remote.set_url(github_repo.ssh_url)
+
+    # TODO add proper refspecs
+    remote.pull()
+    remote.push()
+
+
 
 
 def do_save_config(args):
