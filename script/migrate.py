@@ -115,6 +115,10 @@ def migrate_project(env, github=None, create_repo=False):
         log.error("Error while migrating Trac Env '{trac_id}'".format(trac_id=env['track_id'], e)
 
 
+def migrate_tickets(env, trac, local_repo, github_repo):
+    return {}
+
+
 def migrate_wiki(env, trac, local_repo, github_repo):
     
     # step 1: cut a hole in the box / or create an orphan git branch ;)
