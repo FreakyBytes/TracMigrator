@@ -50,7 +50,7 @@ class Trac(object):
     def __init__(self, base_url, trac_id, user=None, password=None, timeout=5):
         self.base_url = base_url
         self.trac_id = trac_id
-        self.trac_url = urlparse.urljoin(self.base_url, self.trac_id)
+        self.trac_url = urlparse.urljoin(self.base_url, self.trac_id) + '/'
         self.user = user
         self.password = password
         self.rpc_url = urlparse.urljoin(self.trac_url, 'login/jsonrpc' if self.user else 'jsonrpc')
@@ -74,7 +74,10 @@ class Trac(object):
                         'method': endpoint,
                         'params': args if args else [],
                     },
-                    headers={'Content-Type': 'application/json'},
+                    headers={
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
                     auth=(self.user, self.password) if self.user else None,
                     allow_redirects=True,
                     stream=True,
@@ -104,6 +107,7 @@ class Trac(object):
             self.log.debug('Query ok')
             return result['result']
         except ValueError as e:
+            print(r.text)
             raise TracError("Result is no valid JSON", e)
 
 
