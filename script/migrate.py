@@ -221,19 +221,27 @@ def migrate_wiki(env, trac, local_repo, github_repo):
 
         if config['trac']['keep_wiki_files'] is True:
             # save wiki text as .wiki file
-            fs_name = os.path.join(env['git_repository'], "{page}.wiki".format(page=page)
+            fs_name = os.path.join(env['git_repository'], "{page}.wiki".format(page=page))
+            os.makedirs(os.path.dirname(fs_name), exist_ok=True)
             with open(fs_name, 'w') as fs:
                 fs.write(content)
             local_repo.index.add(fs_name)
 
         # convert it
         md = converter.convert(content)
-        fs_name = os.path.join(env['git_repository'], "{page}.md".format(page=page)
+        fs_name = os.path.join(env['git_repository'], "{page}.md".format(page=page))
+        os.makedirs(os.path.dirname(fs_name), exist_ok=True)
         with open(fs_name, 'w') as fs:
             fs.write(md)
         local_repo.index.add(fs_name)
 
-        # TODO fetch wiki attachements!
+        # fetch wiki attachements
+        for attachement in trac.listWikiAttachements(page):
+            fs_name = os.path.join(env['git_repository'], attachement)
+            os.makedirs(os.path.dirname(fs_name), exist_ok=True)
+            with open(fs_name, 'w') as fs:
+                fs.write(trac.getWikiAttachement(attachement))
+            local_repo.index.add(fs_name)
 
     # commit all converted (and non-converted) files
     local_repo.index.commit('converted wiki pages')
