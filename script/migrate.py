@@ -23,6 +23,15 @@ log.setLevel(logging.INFO)
 # regex to analyse GitHub repo ids (e.g. FreakyBytes/TracMigrator, or just TracMigrator)
 _re_github_repo_name = re.compile(r'^(?:(?P<namespace>[\w\d]+)/)?(?P<repo>[\w\d]+)$', re.IGNORECASE | re.UNICODE)
 
+# dict to translate Trac ticket status in GitHub issue state (open/close)
+_ticket_state = {
+    'new': 'open',
+    'reopened': 'open',
+    'assigned': 'open',
+    'accepted': 'open',
+    'closed': 'closed',
+}
+
 def load_config(path):
     config = {
         'github': {
@@ -110,13 +119,82 @@ def migrate_project(env, github=None, create_repo=False):
 
     # start the fun :)
     try:
-        migrate_wiki(env, trac, local_repo, github_repo)
+        converter = migrate_wiki(env, trac, local_repo, github_repo)
+        migrate_tickets(env, trac, local_repo, github_repo, converter)
     except BaseException as e:
         log.error("Error while migrating Trac Env '{trac_id}'".format(trac_id=env['track_id'], e)
 
 
-def migrate_tickets(env, trac, local_repo, github_repo):
-    return {}
+def migrate_tickets(env, trac, local_repo, github_repo, converter):
+    
+    # check if tickets already exist at GitHub
+    if len(github_repo.get_issues()) > 0:
+        # we cannot assure consistent ticket numbers, when already issues exist
+        log.warn("GitHub project for Trac Env '{trac_id}' already contains issues. Skip ticket migration".format(trac_id=env['trac_id']))
+        return
+
+    migration_label = self._get_or_create_label(github_repo, 'migrated', 'brown')
+    ticket_count = 1
+    for ticket_number in trac.listTickets():
+        ticket = trac.getTicket(ticket_number)
+        log.info("Migrate ticket #{ticket_number}".format(ticket_number=ticket_number))
+
+        if ticket['ticket_id'] > ticket_number:
+            # create some dummy issues to cover deleted trac tickets
+            self._create_fake_tickets(github_repo, ticket_count, ticket['ticket_id'])
+
+        # the Ticket itself
+        labels = [self._get_or_create_label(github_repo, name) for name in [ticket['attributes']['component'], ticket['attributes']['milestone'], ticket['attributes']['type'], ticket['attributes'['version'], ticket['attributes']['priority'], ticket['attributes']['resolution']] + ticket['attributes']['keywords'].split(',')
+        labels += [migration_label]
+        labels = filter(None, labels)  # filter away all None's
+        issue = github_repo.create_issue(
+                title=ticket['attributes']['summary'],
+                body="""**component:** {component}
+**owner:** {owner}
+**reporter:** {reporter}
+**created:** {time_created}
+**milestone:** {milestone}
+**type:** {type}
+**version:** {version}
+**keywords:** {keywords}
+
+{description}""".format(time_create=ticket['time_create'], time_changed=ticket['time_changed'], **ticket['attributes']),
+                labels=labels
+            )
+
+        # apply change log as comments/edits
+        for log_entry in sorted(trac.getTicketChangeLog(ticket_number), key='time'):
+            comment_text = """
+**time:** {time}
+**author:** {author}
+""".format(**log_entry)
+            if log_entry['field'] == 'comment':
+                comment_text = comment_text + "\n\n" + converter.convert(log_entry['new_value'])
+            else:
+                comment_text = comment_text + "\nUpdated **{field}** to **{new_value}**".format(**log_entry)
+
+            issue.create_comment(comment_text)
+            if log_entry['field'] == 'status':
+                issue.edit(state=_ticket_state[log_entry['new_value'])
+
+
+def _get_or_create_label(github, label_name, color='pink'):
+    
+    if not label_name:
+        return None
+
+    try:
+        return github.get_label(label_name)
+    except:
+        return github.create_label(label_name, color)
+
+
+def _create_fake_tickets(github, start=0, end=0):
+    
+    log.info("Create {num} fake issues".format(num=end-start))
+    for idx in range(start, end):
+        issue = github.create_issue("Deleted Trac Ticket #{no}".format(no=idx)
+        issue.edit(state='closed')
 
 
 def migrate_wiki(env, trac, local_repo, github_repo):
@@ -155,9 +233,12 @@ def migrate_wiki(env, trac, local_repo, github_repo):
             fs.write(md)
         local_repo.index.add(fs_name)
 
+        # TODO fetch wiki attachements!
+
     # commit all converted (and non-converted) files
     local_repo.index.commit('converted wiki pages')
 
+    return converter
 
 
 def do_save_config(args):
@@ -195,7 +276,6 @@ def do_get_envs(args):
 
 
 def do_migrate(args):
-    pass
 
     if args.dry_run is False:
         # results are supposed to be pushed to github (default)

@@ -67,7 +67,7 @@ class Trac(object):
                 'params': args,
             }
         
-        self.log.debug("Query {endpoint}({args})".format(endpoint=endpoint, args=', '.join(args)))
+        self.log.debug("Query {endpoint}({args})".format(endpoint=endpoint, args=', '.join(str(args))))
         r = requests.post(
                     self.rpc_url,
                     json={
@@ -99,7 +99,7 @@ class Trac(object):
 
             if result['error'] is not None:
                 # error handling
-                error_msg = 'Trac error, while calling {endpoint}({args}): {msg}'.format(endpoint=endpoint, args=', '.join(args), msg=result['error']['message'])
+                error_msg = 'Trac error, while calling {endpoint}({args}): {msg}'.format(endpoint=endpoint, args=', '.join(str(args)), msg=result['error']['message'])
                 self.log.error(error_msg)
                 raise TracError(error_msg)
 
@@ -107,23 +107,22 @@ class Trac(object):
             self.log.debug('Query ok')
             return result['result']
         except ValueError as e:
-            print(r.text)
             raise TracError("Result is no valid JSON", e)
 
 
     def convertClassHint(self, hint):
-        if not isinstance(hint, map):
+        if not isinstance(hint, dict):
             raise TracError('Class Hint is expected to be a map')
 
         if not '__jsonclass__' in hint:
             raise TracError('No Class Hint found')
 
-        if hint['__json_class__'][0] == 'datetime':
+        if hint['__jsonclass__'][0] == 'datetime':
             # let's parse datetime!
-            return datetime.strptime(hint['__json_class__'][1], '%Y-%m-%dT%H:%M:%S')
-        elif hint['__json_class__'][0] == 'binary':
+            return datetime.strptime(hint['__jsonclass__'][1], '%Y-%m-%dT%H:%M:%S')
+        elif hint['__jsonclass__'][1] == 'binary':
             # let's decode BASE64!
-            return base64.base64decode(datetime.strptime(hint['__json_class__'][1]))
+            return base64.base64decode(datetime.strptime(hint['__jsonclass__'][1]))
 
     def listWikiPages(self):
         return self._call('wiki.getAllPages')
@@ -153,12 +152,18 @@ class Trac(object):
             raise TracError('Got unexpected datatype back')
         
         # only return necessary information
-        return {
+        result = {
             'ticket_id': ticket[0],
             'time_created': self.convertClassHint(ticket[1]),
             'time_changed': self.convertClassHint(ticket[2]),
             'attributes': ticket[3],
         }
+        if 'changetime' in result['attributes']:
+            result['attributes']['changetime'] = self.convertClassHint(result['attributes']['changetime'])
+        if 'time' in result['attributes']:
+            result['attributes']['time'] = self.convertClassHint(result['attributes']['time'])
+
+        return result
 
     def getTicketChangeLog(self, ticket_id):
         change_log = self._call('ticket.changeLog', ticket_id)
