@@ -3,6 +3,7 @@
 main script for converting trac to github
 """
 
+import os
 import yaml
 import requests
 import argparse
@@ -10,9 +11,10 @@ import logging
 import re
 
 import wiki
-import trac
+import trac as tracapi
 
 from github.MainClass import Github
+import git
 
 logging.basicConfig(level=logging.WARN, format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s')
 log = logging.getLogger('TracMigrator')
@@ -32,6 +34,8 @@ def load_config(path):
             'timeout': 15,
             'user': None,
             'password': None,
+            'inter_trac_prefix': 'http://example.org/{trac_id}/wiki/',
+            'keep_wiki_files': False,
         },
         'environments': [],
     }
@@ -74,6 +78,17 @@ def parse_repo_name(name, default_namespace=None):
 
 def migrate_project(env, github=None, create_repo=False):
 
+    # open local git repo
+    if not env['git_repository']:
+        # does not have a local git repo configured
+        # throw an error
+        log.error("Trac Env '{trac_id}' does not have a local git repo configured. Skipping".format(trac_id=env['trac_id']))
+        return
+    else:
+        # load local git repo
+        local_repo = git.Repo(env['git_repository'])
+
+    # init github connection, if required
     if github:
         repo_name = '/'.join(filter(None, parse_repo_name(env['github_project'] or env['trac_id'], config['github']['default_namespace'])))
         try:
@@ -89,8 +104,56 @@ def migrate_project(env, github=None, create_repo=False):
             else: 
                 log.error("Could not get GitHub Repo '{repo_name}' for Trac Env '{trac_id}'".format(repo_name=repo_name, trac_id=env['trac_id']))
                 return
-    #import pdb; pdb.set_trace()
-    return
+    
+    # init Trac api object
+    trac = tracapi.Trac(config['trac']['base_url'], env['trac_id'], user=config['trac']['user'], password=config['trac']['password'], timeout=config['trac']['timeout'])
+
+    # start the fun :)
+    try:
+        migrate_wiki(env, trac, local_repo, github_repo)
+    except BaseException as e:
+        log.error("Error while migrating Trac Env '{trac_id}'".format(trac_id=env['track_id'], e)
+
+
+def migrate_wiki(env, trac, local_repo, github_repo):
+    
+    # step 1: cut a hole in the box / or create an orphan git branch ;)
+    wiki_head = git.Head(local_repo, 'refs/heads/{branch}'.format(branch=config['github'].get('wiki_branch', 'gh-pages') or 'gh-pages'))
+    wiki_head.checkout(force=True, orphan=True)
+    # remove everything from the index and then from the repo
+    # (it remains existing in the other branches)
+    for obj in local_repo.index.remove('*'):
+        os.remove(os.path.join(env['git_repository'], obj))
+
+    # list all wiki pages in the trac env
+    wiki_pages = trac.listWikiPages()
+    # init wiki->MarkDown converter
+    converter = wiki.WikiConverter(
+            pages={page: None for page in wiki_pages},  # currently not used
+            prefixes={trac_env['trac_id']: config['trac']['inter_trac_prefix'].format(**trac_env) for trac_env in config['environments']}  # generate prefix map, so inter_wiki links get properly redirected
+        )
+
+    # iterate over all wiki pages
+    for page in wiki_pages:
+        content = trac.getWikiPageText(page)
+
+        if config['trac']['keep_wiki_files'] is True:
+            # save wiki text as .wiki file
+            fs_name = os.path.join(env['git_repository'], "{page}.wiki".format(page=page)
+            with open(fs_name, 'w') as fs:
+                fs.write(content)
+            local_repo.index.add(fs_name)
+
+        # convert it
+        md = converter.convert(content)
+        fs_name = os.path.join(env['git_repository'], "{page}.md".format(page=page)
+        with open(fs_name, 'w') as fs:
+            fs.write(md)
+        local_repo.index.add(fs_name)
+
+    # commit all converted (and non-converted) files
+    local_repo.index.commit('converted wiki pages')
+
 
 
 def do_save_config(args):

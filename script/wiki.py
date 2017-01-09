@@ -100,7 +100,7 @@ class WikiConverter(object):
     def _callback_inline_links(self, match):
         # TODO take special care of Issue links (#1234) and changesets/commits (?)
         return "{prefix}{link_type}/{link}".format(
-                prefix=self.prefixes[match.group('target')] or '',
+                prefix=self.prefixes.get(match.group('target'), ''),
                 link_type=match.group('type') or 'wiki',
                 link=match.group('name') or '',
             )
