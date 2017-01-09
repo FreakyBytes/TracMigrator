@@ -120,9 +120,10 @@ class Trac(object):
         if hint['__jsonclass__'][0] == 'datetime':
             # let's parse datetime!
             return datetime.strptime(hint['__jsonclass__'][1], '%Y-%m-%dT%H:%M:%S')
-        elif hint['__jsonclass__'][1] == 'binary':
+        elif hint['__jsonclass__'][0] == 'binary':
             # let's decode BASE64!
-            return base64.base64decode(datetime.strptime(hint['__jsonclass__'][1]))
+            print(hint['__jsonclass__'][1])
+            return base64.b64decode(hint['__jsonclass__'][1])
 
     def listWikiPages(self):
         return self._call('wiki.getAllPages')
