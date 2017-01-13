@@ -53,7 +53,7 @@ class WikiConverter(object):
         """
 
         text = self._re_codeblock.sub(self._callback_mask_code, text)
-        return self._re_code(self._callback_mask_code, text)
+        return self._re_code.sub(self._callback_mask_code, text)
 
     def _callback_mask_code(self, match):
         try:
@@ -82,11 +82,11 @@ class WikiConverter(object):
 
     def _callback_convert_code(self, match):
         
-        if( match.group('hash') not in self.mask_map ):
+        if match.group('hash') not in self.mask_map:
             return match.group('0')
 
         code = self.mask_map[match.group('hash')]
-        if( not code['shebang'] ):
+        if not code['shebang']:
             # "normal" code block
             return '```{code}```'.format(code=code['code'])
         else:
@@ -99,10 +99,11 @@ class WikiConverter(object):
 
     def _callback_inline_links(self, match):
         # TODO take special care of Issue links (#1234) and changesets/commits (?)
+        groups = match.groupdict()
         return "{prefix}{link_type}/{link}".format(
-                prefix=self.prefixes.get(match.group('target'), ''),
-                link_type=match.group('type') or 'wiki',
-                link=match.group('name') or '',
+                prefix=self.prefixes.get(groups.get('target', None), ''),
+                link_type=groups.get('type', 'wiki'),
+                link=groups.get('name', ''),
             )
 
     def _convert_marked_links(self, text):
@@ -110,25 +111,25 @@ class WikiConverter(object):
         return self._re_marked_links.sub(self._callback_marked_links, text)
 
     def _callback_marked_links(self, match):
-        
-        if( match.group('macro') ):
+        groups = macht.groupdict() 
+        if 'macro' in groups:
             # handle at least image macros
-            if( match.group('macro').lower() == 'image' ):
+            if groups['macro'].lower() == 'image':
                 return '![{title}]({link})'.format(
-                                            title=match.group('') or 'image',
-                                            link=match.group('link') )
+                                            title=groups.get('name', 'image'),
+                                            link=groups['link'] )
             else:
                 # some kind of special macro, we just return the original text
                 return match.group(0)
-        elif( not match.group('name') ):
+        elif 'name' not in groups:
             # hanlde simple marked links w/o a name
             # links, that are not named do not need special escaping
-            return self._convert_inline_links(match.group('link'))
+            return self._convert_inline_links(groups['link'])
         else:
             # handle named marked links
             return '[{name}]({link})'.format(
-                name=match.group('name'),
-                link=self._convert_inline_links(match.gropu('link')))
+                name=groups.get('name', groups['link']),
+                link=self._convert_inline_links(groups['link']))
 
     def _convert_text_style(self, text):
         
@@ -137,14 +138,14 @@ class WikiConverter(object):
     def _callback_text_style(self, match):
         
         prefix_len = len(match.group('prefix'))
-        if( prefix_len == 2 ):
+        if prefix_len == 2:
             # italic
             return '*{text}*'.format(text=match.group('text'))
-        elif( prefix_lne == 3 ):
+        elif prefix_lne == 3:
             # bold
             return '**{text}**'.format(text=match.group('text'))
-        elif( prefix_len == 5 ):
-            return '**_{text}_**'.format(text=match.gropu('text'))
+        elif prefix_len == 5:
+            return '**_{text}_**'.format(text=match.group('text'))
 
     def _convert_headlines(self, text):
         
@@ -153,10 +154,10 @@ class WikiConverter(object):
     def _callback_headlines(self, match):
 
         level = len(match.group('level'))
-        if( level == 1 ):
+        if level == 1:
             # top level headline -> use underlining with equal signs (=)
             return '{title}\n{level}'.format(title=match.group('title'), level='='*len(match.group('title')))
-        elif( level == 2 ):
+        elif level == 2:
             # second level headline -> underline with minus (-)
             return '{title}\n{level}'.format(title=match.group('title'), level='-'*len(match.group('title')))
         else:

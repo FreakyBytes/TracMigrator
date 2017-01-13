@@ -21,7 +21,7 @@ log = logging.getLogger('TracMigrator')
 log.setLevel(logging.INFO)
 
 # regex to analyse GitHub repo ids (e.g. FreakyBytes/TracMigrator, or just TracMigrator)
-_re_github_repo_name = re.compile(r'^(?:(?P<namespace>[\w\d]+)/)?(?P<repo>[\w\d]+)$', re.IGNORECASE | re.UNICODE)
+_re_github_repo_name = re.compile(r'^(?:(?P<namespace>[\w\d\-_]+)/)?(?P<repo>[\w\d\-_]+)$', re.IGNORECASE | re.UNICODE)
 
 # dict to translate Trac ticket status in GitHub issue state (open/close)
 _ticket_state = {
@@ -99,7 +99,9 @@ def migrate_project(env, github=None, create_repo=False):
 
     # init github connection, if required
     if github:
-        repo_name = '/'.join(filter(None, parse_repo_name(env['github_project'] or env['trac_id'], config['github']['default_namespace'])))
+        repo_path = parse_repo_name(env['github_project'] or env['trac_id'], config['github']['default_namespace'])
+        repo_name = '/'.join(filter(None, repo_path))
+        #import pdb; pdb.set_trace()
         try:
             log.info("Try to find GitHub repo '{repo_name}'".format(repo_name=repo_name))
             github_repo = github.get_repo(repo_name)
@@ -109,7 +111,14 @@ def migrate_project(env, github=None, create_repo=False):
         except:
             if create_repo is True:
                 log.warn("Could not get GitHub Repo '{repo_name}' for Trac Env '{trac_id}'. Attempting to create it...".format(repo_name=repo_name, trac_id=env['trac_id']))
-                github_repo = github.get_user().create_repo(repo_name)
+                if repo_path[0] and repo_path[0] != github.get_user().login:
+                    # repo has an org path
+                    github_org = github.get_organization(repo_path[0])
+                    github_repo = github_org.create_repo(repo_path[1], has_issues=True, has_wiki=False, auto_init=False)
+                else:
+                    # create repo under current user
+                    github_repo = github.get_user().create_repo(repo_path[1], has_issues=True, has_wiki=False, auto_init=False)
+                log.info("Created GitHub Repo '{repo_name}'".format(repo_name=github_repo.full_name))
             else: 
                 log.error("Could not get GitHub Repo '{repo_name}' for Trac Env '{trac_id}'".format(repo_name=repo_name, trac_id=env['trac_id']))
                 return
@@ -122,7 +131,7 @@ def migrate_project(env, github=None, create_repo=False):
         converter = migrate_wiki(env, trac, local_repo, github_repo)
         migrate_tickets(env, trac, local_repo, github_repo, converter)
     except BaseException as e:
-        log.error("Error while migrating Trac Env '{trac_id}'".format(trac_id=env['track_id']), e)
+        log.error("Error while migrating Trac Env '{trac_id}'".format(trac_id=env['trac_id']), e)
 
 
 def migrate_tickets(env, trac, local_repo, github_repo, converter):
@@ -208,8 +217,14 @@ def migrate_wiki(env, trac, local_repo, github_repo):
     wiki_head.checkout(force=True, orphan=True)
     # remove everything from the index and then from the repo
     # (it remains existing in the other branches)
-    for obj in local_repo.index.remove('*'):
-        os.remove(os.path.join(env['git_repository'], obj))
+    repo_path = os.path.normpath(os.path.expanduser(env['git_repository']))
+    for obj in local_repo.index.remove('.', r=True):
+        log.debug("remove file {f}".format(f=obj))
+        file_path = os.path.join(repo_path, obj)
+        try:
+            os.remove(file_path)
+        except BaseException as e:
+            log.warn("error while attempting to remove {f}".format(f=file_path))
 
     # list all wiki pages in the trac env
     wiki_pages = trac.listWikiPages()
@@ -223,29 +238,33 @@ def migrate_wiki(env, trac, local_repo, github_repo):
     for page in wiki_pages:
         content = trac.getWikiPageText(page)
 
+        #import pdb; pdb.set_trace()
         if config['trac']['keep_wiki_files'] is True:
             # save wiki text as .wiki file
-            fs_name = os.path.join(env['git_repository'], "{page}.wiki".format(page=page))
+            fs_name = os.path.join(repo_path, "{page}.wiki".format(page=page))
             os.makedirs(os.path.dirname(fs_name), exist_ok=True)
             with open(fs_name, 'w') as fs:
                 fs.write(content)
-            local_repo.index.add(fs_name)
+                fs.flush()
+            local_repo.index.add([fs_name, ])
 
         # convert it
         md = converter.convert(content)
-        fs_name = os.path.join(env['git_repository'], "{page}.md".format(page=page))
+        fs_name = os.path.join(repo_path, "{page}.md".format(page=page))
         os.makedirs(os.path.dirname(fs_name), exist_ok=True)
         with open(fs_name, 'w') as fs:
             fs.write(md)
-        local_repo.index.add(fs_name)
+            fs.flush()
+        local_repo.index.add([fs_name, ])
 
         # fetch wiki attachements
         for attachement in trac.listWikiAttachements(page):
-            fs_name = os.path.join(env['git_repository'], attachement)
+            fs_name = os.path.join(repo_path, attachement)
             os.makedirs(os.path.dirname(fs_name), exist_ok=True)
             with open(fs_name, 'w') as fs:
                 fs.write(trac.getWikiAttachement(attachement))
-            local_repo.index.add(fs_name)
+                fs.flush()
+            local_repo.index.add([fs_name, ])
 
     # commit all converted (and non-converted) files
     local_repo.index.commit('converted wiki pages')
