@@ -122,7 +122,7 @@ def migrate_project(env, github=None, create_repo=False):
         converter = migrate_wiki(env, trac, local_repo, github_repo)
         migrate_tickets(env, trac, local_repo, github_repo, converter)
     except BaseException as e:
-        log.error("Error while migrating Trac Env '{trac_id}'".format(trac_id=env['track_id'], e)
+        log.error("Error while migrating Trac Env '{trac_id}'".format(trac_id=env['track_id']), e)
 
 
 def migrate_tickets(env, trac, local_repo, github_repo, converter):
@@ -148,7 +148,7 @@ def migrate_tickets(env, trac, local_repo, github_repo, converter):
             self._create_fake_tickets(github_repo, ticket_count, ticket['ticket_id'])
 
         # the Ticket itself
-        labels = [self._get_or_create_label(github_repo, name) for name in [ticket['attributes']['component'], ticket['attributes']['milestone'], ticket['attributes']['type'], ticket['attributes'['version'], ticket['attributes']['priority'], ticket['attributes']['resolution']] + ticket['attributes']['keywords'].split(',')
+        labels = [self._get_or_create_label(github_repo, name) for name in [ticket['attributes']['component'], ticket['attributes']['milestone'], ticket['attributes']['type'], ticket['attributes']['version'], ticket['attributes']['priority'], ticket['attributes']['resolution']] + ticket['attributes']['keywords'].split(',')]
         labels += [migration_label]
         labels = filter(None, labels)  # filter away all None's
         issue = github_repo.create_issue(
@@ -179,7 +179,7 @@ def migrate_tickets(env, trac, local_repo, github_repo, converter):
 
             issue.create_comment(comment_text)
             if log_entry['field'] == 'status':
-                issue.edit(state=_ticket_state[log_entry['new_value'])
+                issue.edit(state=_ticket_state[log_entry['new_value']])
 
 
 def _get_or_create_label(github, label_name, color='pink'):
@@ -197,7 +197,7 @@ def _create_fake_tickets(github, start=0, end=0):
     
     log.info("Create {num} fake issues".format(num=end-start))
     for idx in range(start, end):
-        issue = github.create_issue("Deleted Trac Ticket #{no}".format(no=idx)
+        issue = github.create_issue("Deleted Trac Ticket #{no}".format(no=idx))
         issue.edit(state='closed')
 
 
@@ -268,10 +268,9 @@ def migrate_git_repo(env, trac, local_repo, github_repo):
             remote.set_url(github_repo.ssh_url)
 
     # TODO add proper refspecs
-    remote.pull()
-    remote.push()
-
-
+    refspec = '+refs/heads/*:refs/remotes/github/*'
+    remote.pull(refspec=refspec)
+    remote.push(refspec=refspec)
 
 
 def do_save_config(args):
@@ -361,4 +360,7 @@ if __name__ == '__main__':
 
     # call sub command function
     # -> function is set by subparser.set_defaults(func=...)
-    args.func(args)
+    if hasattr(args, 'func') and args.func:
+        args.func(args)
+    else:
+        parser.print_help()
