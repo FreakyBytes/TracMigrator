@@ -162,12 +162,17 @@ def migrate_tickets(env, trac, local_repo, github_repo, converter):
             # create some dummy issues to cover deleted trac tickets
             _create_fake_tickets(github_repo, ticket_count, ticket['ticket_id'])
 
-        # the Ticket itself
-        labels = [_get_or_create_label(github_repo, name) for name in [ticket['attributes']['component'], ticket['attributes']['milestone'], ticket['attributes']['type'], ticket['attributes']['version'], ticket['attributes']['priority'], ticket['attributes']['resolution']] + ticket['attributes']['keywords'].split(',')]
-        labels += [migration_label]
-        labels = filter(None, labels)  # filter away all None's
+        # prepare the labels
+        label_names = [ticket['attributes']['component'], ticket['attributes']['milestone'], ticket['attributes']['type'], ticket['attributes']['version'], ticket['attributes']['priority'], ticket['attributes']['resolution']] + ticket['attributes']['keywords'].split(',')
+        log.debug("Raw label names: {labels}".format(labels=', '.join(label_names)))
+        labels = [_get_or_create_label(github_repo, name) for name in label_names] + [migration_label]
+        labels = filter(None, labels)  # filter away all Nones
+        log.debug("Used labels: {labels}".format(labels=', '.join([l.name for l in labels])))
+        
+        # teh ticket itself
         issue = github_repo.create_issue(
                 title=ticket['attributes']['summary'],
+                labels=labels,
                 body="""**component:** {component}
 **owner:** {owner}
 **reporter:** {reporter}
@@ -178,12 +183,8 @@ def migrate_tickets(env, trac, local_repo, github_repo, converter):
 **keywords:** {keywords}
 
 {description}""".format(time_created=ticket['time_created'], time_changed=ticket['time_changed'], **ticket['attributes']),
-                labels=labels
             )
-
-        log.debug("Used labels: {labels}".format(labels=', '.join([l.name for l in labels])))
-        issue.add_to_labels(labels)
-
+        
         # apply change log as comments/edits
         change_count = 0
         for log_entry in sorted(trac.getTicketChangeLog(ticket_number), key=lambda log: log['time']):
@@ -213,10 +214,12 @@ def _get_or_create_label(github, label_name, color=None):
         return None
     
     # check, if we got the label already cached
+    label = None
     if github.full_name in _label_cache and _label_cache[github.full_name]:
         if label_name in _label_cache[github.full_name] and _label_cache[github.full_name][label_name]:
             return _label_cache[github.full_name][label_name]
-    else:
+
+    if not label:
         # not in cache, try to get it or create it
         try:
             label = github.get_label(label_name)
@@ -226,8 +229,12 @@ def _get_or_create_label(github, label_name, color=None):
 
             log.info("Create label '{label}' with color #{color} for {repo_name}".format(label=label_name, color=color, repo_name=github.full_name))
             label = github.create_label(label_name, color)
+        
+        if github.full_name not in _label_cache:
+            _label_cache[github.full_name] = {label_name: label}
+        else:
+            _label_cache[github.full_name][label_name] = label
 
-        _label_cache[github.full_name][label_name] = label
         return label
 
 
@@ -270,6 +277,7 @@ def migrate_wiki(env, trac, local_repo, github_repo):
         )
 
     # iterate over all wiki pages
+    return converter  # TODO
     for page in wiki_pages:
         log.info("Convert wiki page {page} for Trac Env {trac_id}".format(page=page, trac_id=env['trac_id']))
         content = trac.getWikiPageText(page)
