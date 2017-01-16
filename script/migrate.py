@@ -96,7 +96,9 @@ def migrate_project(env, github=None, create_repo=False):
         return
     else:
         # load local git repo
+        log.debug("Try to open local git repository at: {local_repo}".format(local_repo=env['local_repo']))
         local_repo = git.Repo(env['git_repository'])
+        log.info("Opened local git repo {local_repo} for trac env {trac_id}".format(local_repo=local_repo.working_dir, trac_id=env['trac_id']))
 
     # init github connection, if required
     if github:
@@ -104,14 +106,15 @@ def migrate_project(env, github=None, create_repo=False):
         repo_name = '/'.join(filter(None, repo_path))
         #import pdb; pdb.set_trace()
         try:
-            log.info("Try to find GitHub repo '{repo_name}'".format(repo_name=repo_name))
+            log.info("Try to find GitHub repo {repo_name}".format(repo_name=repo_name))
             github_repo = github.get_repo(repo_name)
             # try accessing the name, since the object is lazy loaded
             # if the repos does not exist yet, it will throw an exception
             github_repo.name
+            log.info("Found GitHub repo {repo_name}".format(repo_name=github_repo.full_name))
         except:
             if create_repo is True:
-                log.warn("Could not get GitHub Repo '{repo_name}' for Trac Env '{trac_id}'. Attempting to create it...".format(repo_name=repo_name, trac_id=env['trac_id']))
+                log.warn("Could not get GitHub Repo {repo_name} for Trac Env {trac_id}. Attempting to create it...".format(repo_name=repo_name, trac_id=env['trac_id']))
                 if repo_path[0] and repo_path[0] != github.get_user().login:
                     # repo has an org path
                     github_org = github.get_organization(repo_path[0])
@@ -119,9 +122,9 @@ def migrate_project(env, github=None, create_repo=False):
                 else:
                     # create repo under current user
                     github_repo = github.get_user().create_repo(repo_path[1], has_issues=True, has_wiki=False, auto_init=False)
-                log.info("Created GitHub Repo '{repo_name}'".format(repo_name=github_repo.full_name))
+                log.info("Created GitHub Repo {repo_name}".format(repo_name=github_repo.full_name))
             else: 
-                log.error("Could not get GitHub Repo '{repo_name}' for Trac Env '{trac_id}'".format(repo_name=repo_name, trac_id=env['trac_id']))
+                log.error("Could not get GitHub Repo {repo_name} for Trac Env {trac_id}".format(repo_name=repo_name, trac_id=env['trac_id']))
                 return
     else:
         github_repo = None
@@ -134,7 +137,7 @@ def migrate_project(env, github=None, create_repo=False):
         converter = migrate_wiki(env, trac, local_repo, github_repo)
         migrate_tickets(env, trac, local_repo, github_repo, converter)
     except BaseException as e:
-        log.error("Error while migrating Trac Env '{trac_id}'".format(trac_id=env['trac_id']), e)
+        log.error("Error while migrating Trac Env {trac_id}".format(trac_id=env['trac_id']), e)
 
 
 def migrate_tickets(env, trac, local_repo, github_repo, converter):
@@ -179,6 +182,7 @@ def migrate_tickets(env, trac, local_repo, github_repo, converter):
             )
 
         # apply change log as comments/edits
+        change_count = 0
         for log_entry in sorted(trac.getTicketChangeLog(ticket_number), key='time'):
             comment_text = """
 **time:** {time}
@@ -193,6 +197,10 @@ def migrate_tickets(env, trac, local_repo, github_repo, converter):
             if log_entry['field'] == 'status':
                 issue.edit(state=_ticket_state[log_entry['new_value']])
 
+            change_count++
+
+        log.info("Migrated ticket #{ticket_number} with {change_count} log entries".format(ticket_number=ticket_number, change_count=change_count))
+
 
 def _get_or_create_label(github, label_name, color=None):
     
@@ -205,6 +213,7 @@ def _get_or_create_label(github, label_name, color=None):
     try:
         return github.get_label(label_name)
     except:
+        log.info("Create label '{label}' with color #{color} for {repo_name}".format(label=label_name, color=color, repo_name=github.full_name))
         return github.create_label(label_name, color)
 
 
@@ -217,12 +226,16 @@ def _create_fake_tickets(github, start=0, end=0):
 
 
 def migrate_wiki(env, trac, local_repo, github_repo):
-    
+    log.info("Start wiki conversion for Trac Env {trac_id}".format(trac_id=env['trac_id']))
+
     # step 1: cut a hole in the box / or create an orphan git branch ;)
+    log.debug("Creating orphaned branch for wiki pages")
     wiki_head = git.Head(local_repo, 'refs/heads/{branch}'.format(branch=config['github'].get('wiki_branch', 'gh-pages') or 'gh-pages'))
     wiki_head.checkout(force=True, orphan=True)
+
     # remove everything from the index and then from the repo
     # (it remains existing in the other branches)
+    log.debug("Remove remaining files in working dir")
     repo_path = os.path.normpath(os.path.expanduser(env['git_repository']))
     for obj in local_repo.index.remove('.', r=True):
         log.debug("remove file {f}".format(f=obj))
@@ -234,6 +247,8 @@ def migrate_wiki(env, trac, local_repo, github_repo):
 
     # list all wiki pages in the trac env
     wiki_pages = trac.listWikiPages()
+    log.debug("Found {num} wiki pages".format(num=len(wiki_pages)))
+
     # init wiki->MarkDown converter
     converter = wiki.WikiConverter(
             pages={page: None for page in wiki_pages},  # currently not used
@@ -242,6 +257,7 @@ def migrate_wiki(env, trac, local_repo, github_repo):
 
     # iterate over all wiki pages
     for page in wiki_pages:
+        log.info("Convert wiki page {page} for Trac Env {trac_id}".format(page=page, trac_id=env['trac_id']))
         content = trac.getWikiPageText(page)
 
         #import pdb; pdb.set_trace()
@@ -264,10 +280,12 @@ def migrate_wiki(env, trac, local_repo, github_repo):
         local_repo.index.add([fs_name, ])
 
         # fetch wiki attachements
+        log.info("Fetch attachements for {page}".format(page=page))
         for attachement in trac.listWikiAttachements(page):
             fs_name = os.path.join(repo_path, attachement)
             os.makedirs(os.path.dirname(fs_name), exist_ok=True)
             with open(fs_name, 'w') as fs:
+                log.debug("Store {att}".format(att=attachement))
                 fs.write(trac.getWikiAttachement(attachement))
                 fs.flush()
             local_repo.index.add([fs_name, ])
@@ -285,6 +303,7 @@ def migrate_git_repo(env, trac, local_repo, github_repo):
         return
     
     # create a new remote, and if exists, checks the url
+    log.info("Update git remote configuration for {local_repo}".format(local_repo=local_repo.working_dir))
     try:
         remote = local_repo.create_remote('github', github_repo.ssh_url)
     except:
@@ -293,9 +312,11 @@ def migrate_git_repo(env, trac, local_repo, github_repo):
             remote.set_url(github_repo.ssh_url)
 
     # TODO add proper refspecs
+    log.info("Push {local_repo} to {github_repo} for Trac Env {trac_id}".format(local_repo=local_repo.working_dir, github_repo=github_repo.full_name, trac_id=env['trac_id']))
     refspec = '+refs/heads/*:refs/remotes/github/*'
     remote.pull(refspec=refspec)
     remote.push(refspec=refspec)
+    log.info("Done pushing")
 
 
 def do_save_config(args):
