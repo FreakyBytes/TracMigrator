@@ -19,8 +19,8 @@ class WikiConverter(object):
     _re_text_style = re.compile(r'(?P<prefix>(?:(?:(?<!\\)\'){2,3}){1,2})(?P<text>.*?)(?P=prefix)', re.IGNORECASE | re.MULTILINE | re.DOTALL | re.UNICODE)
     _re_headlines = re.compile(r'^(?P<level>((?<!\\)=)+)\s*(?P<title>[^=]+)\s*(?P=level)\s*$', re.IGNORECASE | re.MULTILINE | re.UNICODE)
     _re_marked_links = re.compile(r'(:P[^\!]|^)\[{1,2}(?:(?P<macro>\w+)\()?(?P<link>[^ |\[\]]+)(?(macro)\))(?:[ |](?P<name>[\s\w]+?))?\]{1,2}', re.IGNORECASE | re.MULTILINE | re.UNICODE)
-    _re_inline_links = re.compile(r'(?:[^\!\(\[]|^)(?#target)(?:(?P<target>[a-zA-Z0-9-_]+):)??(?# target end / link type)(?:(?P<linktype>wiki|ticket|report|changeset):)?(?# type end / actual name w/ opt dbl quotes)(?P<quoting>\"?)(?P<name>(?(linktype)[a-zA-Z0-9-_#]+|(?:[A-Z#][a-z0-9-_#]+){2,}))+(?P=quoting)', re.IGNORECASE | re.MULTILINE | re.UNICODE)
-    _re_break_line = re.compile(r'(?:[^\!]|^)(\\{2}|\[{2}br\]{2})', re.IGNORECASE | re.MULTILINE | re.UNICODE)
+    _re_inline_links = re.compile(r'(?P<escape>[\!\(\[]|^)(?#target)(?:(?P<target>[a-zA-Z0-9-_]+):)??(?# target end / link type)(?:(?P<linktype>wiki|ticket|report|changeset):)?(?# type end / actual name w/ opt dbl quotes)(?P<quoting>\"?)(?P<name>(?(linktype)[a-zA-Z0-9-_#]+|(?:[A-Z#][a-z0-9-_#]+){2,}))+(?P=quoting)', re.MULTILINE | re.UNICODE)
+    _re_breaklines = re.compile(r'(?:[^\!]|^)(\\{2}|\[{2}br\]{2})', re.IGNORECASE | re.MULTILINE | re.UNICODE)
     _re_code_placeholder = re.compile(r'%%%%%%%%{(?P<hash>[a-f0-9]+)}%%%%%%%%', re.IGNORECASE | re.MULTILINE | re.UNICODE)
     
 
@@ -100,19 +100,23 @@ class WikiConverter(object):
     def _callback_inline_links(self, match):
         # TODO take special care of Issue links (#1234) and changesets/commits (?)
         groups = match.groupdict()
-        return "{prefix}{link_type}/{link}".format(
-                prefix=self.prefixes.get(groups.get('target', None), ''),
-                link_type=groups.get('type', 'wiki'),
-                link=groups.get('name', ''),
-            )
+        if 'escape' in groups and groups['escape']:
+            # link is escaped, return it just without the leading '!'
+            return match.group(0)[len(groups['escape']):]
+        else:
+            return "{prefix}{link_type}/{link}".format(
+                    prefix=self.prefixes.get(groups.get('target', None), ''),
+                    link_type=groups.get('type', 'wiki'),
+                    link=groups.get('name', ''),
+                )
 
     def _convert_marked_links(self, text):
         
         return self._re_marked_links.sub(self._callback_marked_links, text)
 
     def _callback_marked_links(self, match):
-        groups = macht.groupdict() 
-        if 'macro' in groups:
+        groups = match.groupdict() 
+        if 'macro' in groups and groups['macro']:
             # handle at least image macros
             if groups['macro'].lower() == 'image':
                 return '![{title}]({link})'.format(
@@ -141,7 +145,7 @@ class WikiConverter(object):
         if prefix_len == 2:
             # italic
             return '*{text}*'.format(text=match.group('text'))
-        elif prefix_lne == 3:
+        elif prefix_len == 3:
             # bold
             return '**{text}**'.format(text=match.group('text'))
         elif prefix_len == 5:
@@ -169,8 +173,22 @@ class WikiConverter(object):
         return self._re_breaklines.sub('\n\n', text)
 
 
+if __name__ == '__main__':
+    # called as standalone script
+    converter = WikiConverter()
 
+    # read piped text from stdin
+    import sys
+    import time
 
+    if len(sys.argv) >= 2:
+        with open(sys.argv[1], 'r') as fs:
+            wiki_text = fs.read()
+    else:
+        buff = sys.stdin.readlines()
+        wiki_text = ''.join(buff)
 
-
+    sys.stdout.write(wiki_text)
+    sys.stdout.write('\n\n -------- \n\n')
+    sys.stdout.write(converter.convert(wiki_text))
 
