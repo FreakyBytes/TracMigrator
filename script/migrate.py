@@ -96,7 +96,7 @@ def migrate_project(env, github=None, create_repo=False):
         return
     else:
         # load local git repo
-        log.debug("Try to open local git repository at: {local_repo}".format(local_repo=env['local_repo']))
+        log.debug("Try to open local git repository at: {local_repo}".format(local_repo=env['git_repository']))
         local_repo = git.Repo(env['git_repository'])
         log.info("Opened local git repo {local_repo} for trac env {trac_id}".format(local_repo=local_repo.working_dir, trac_id=env['trac_id']))
 
@@ -197,7 +197,7 @@ def migrate_tickets(env, trac, local_repo, github_repo, converter):
             if log_entry['field'] == 'status':
                 issue.edit(state=_ticket_state[log_entry['new_value']])
 
-            change_count++
+            change_count += 1
 
         log.info("Migrated ticket #{ticket_number} with {change_count} log entries".format(ticket_number=ticket_number, change_count=change_count))
 
@@ -280,12 +280,11 @@ def migrate_wiki(env, trac, local_repo, github_repo):
         local_repo.index.add([fs_name, ])
 
         # fetch wiki attachements
-        log.info("Fetch attachements for {page}".format(page=page))
         for attachement in trac.listWikiAttachements(page):
             fs_name = os.path.join(repo_path, attachement)
             os.makedirs(os.path.dirname(fs_name), exist_ok=True)
             with open(fs_name, 'w') as fs:
-                log.debug("Store {att}".format(att=attachement))
+                log.debug("Store Wiki Attachement {att} for page {page}".format(att=attachement, page=page))
                 fs.write(trac.getWikiAttachement(attachement))
                 fs.flush()
             local_repo.index.add([fs_name, ])
