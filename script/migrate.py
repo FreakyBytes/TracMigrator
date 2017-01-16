@@ -9,6 +9,7 @@ import requests
 import argparse
 import logging
 import re
+import random
 
 import wiki
 import trac as tracapi
@@ -122,6 +123,8 @@ def migrate_project(env, github=None, create_repo=False):
             else: 
                 log.error("Could not get GitHub Repo '{repo_name}' for Trac Env '{trac_id}'".format(repo_name=repo_name, trac_id=env['trac_id']))
                 return
+    else:
+        github_repo = None
     
     # init Trac api object
     trac = tracapi.Trac(config['trac']['base_url'], env['trac_id'], user=config['trac']['user'], password=config['trac']['password'], timeout=config['trac']['timeout'])
@@ -136,17 +139,17 @@ def migrate_project(env, github=None, create_repo=False):
 
 def migrate_tickets(env, trac, local_repo, github_repo, converter):
     
-    if not github:
+    if not github_repo:
         log.warn("Skipping ticket migration, due to dry-run flag")
         return
 
-    # check if tickets already exist at GitHub
-    if len(github_repo.get_issues()) > 0:
+    # check if tickets already exist at GitHub (if first is empty to be precise, because the raw pagination api does not support len() )
+    if len(github_repo.get_issues().get_page(0)) > 0:
         # we cannot assure consistent ticket numbers, when already issues exist
         log.warn("GitHub project for Trac Env '{trac_id}' already contains issues. Skip ticket migration".format(trac_id=env['trac_id']))
         return
 
-    migration_label = self._get_or_create_label(github_repo, 'migrated', 'brown')
+    migration_label = _get_or_create_label(github_repo, 'migrated', '662200')  # brown
     ticket_count = 1
     for ticket_number in trac.listTickets():
         ticket = trac.getTicket(ticket_number)
@@ -154,10 +157,10 @@ def migrate_tickets(env, trac, local_repo, github_repo, converter):
 
         if ticket['ticket_id'] > ticket_number:
             # create some dummy issues to cover deleted trac tickets
-            self._create_fake_tickets(github_repo, ticket_count, ticket['ticket_id'])
+            _create_fake_tickets(github_repo, ticket_count, ticket['ticket_id'])
 
         # the Ticket itself
-        labels = [self._get_or_create_label(github_repo, name) for name in [ticket['attributes']['component'], ticket['attributes']['milestone'], ticket['attributes']['type'], ticket['attributes']['version'], ticket['attributes']['priority'], ticket['attributes']['resolution']] + ticket['attributes']['keywords'].split(',')]
+        labels = [_get_or_create_label(github_repo, name) for name in [ticket['attributes']['component'], ticket['attributes']['milestone'], ticket['attributes']['type'], ticket['attributes']['version'], ticket['attributes']['priority'], ticket['attributes']['resolution']] + ticket['attributes']['keywords'].split(',')]
         labels += [migration_label]
         labels = filter(None, labels)  # filter away all None's
         issue = github_repo.create_issue(
@@ -171,7 +174,7 @@ def migrate_tickets(env, trac, local_repo, github_repo, converter):
 **version:** {version}
 **keywords:** {keywords}
 
-{description}""".format(time_create=ticket['time_create'], time_changed=ticket['time_changed'], **ticket['attributes']),
+{description}""".format(time_created=ticket['time_created'], time_changed=ticket['time_changed'], **ticket['attributes']),
                 labels=labels
             )
 
@@ -191,10 +194,13 @@ def migrate_tickets(env, trac, local_repo, github_repo, converter):
                 issue.edit(state=_ticket_state[log_entry['new_value']])
 
 
-def _get_or_create_label(github, label_name, color='pink'):
+def _get_or_create_label(github, label_name, color=None):
     
     if not label_name:
         return None
+
+    if not color:
+        color = ''.join([random.choice('0123456789ABCDEF') for x in range(6)])
 
     try:
         return github.get_label(label_name)

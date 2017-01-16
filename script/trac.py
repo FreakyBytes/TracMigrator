@@ -182,5 +182,4 @@ class Trac(object):
             })
 
         return result
-        
 
