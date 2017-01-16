@@ -137,7 +137,7 @@ def migrate_project(env, github=None, create_repo=False):
         converter = migrate_wiki(env, trac, local_repo, github_repo)
         migrate_tickets(env, trac, local_repo, github_repo, converter)
     except BaseException as e:
-        log.error("Error while migrating Trac Env {trac_id}".format(trac_id=env['trac_id']), e)
+        log.exception("Error while migrating Trac Env {trac_id}".format(trac_id=env['trac_id']))
 
 
 def migrate_tickets(env, trac, local_repo, github_repo, converter):
@@ -147,7 +147,7 @@ def migrate_tickets(env, trac, local_repo, github_repo, converter):
         return
 
     # check if tickets already exist at GitHub (if first is empty to be precise, because the raw pagination api does not support len() )
-    if len(github_repo.get_issues().get_page(0)) > 0:
+    if len(github_repo.get_issues().get_page(0)) > 0 and False:
         # we cannot assure consistent ticket numbers, when already issues exist
         log.warn("GitHub project for Trac Env '{trac_id}' already contains issues. Skip ticket migration".format(trac_id=env['trac_id']))
         return
@@ -181,9 +181,12 @@ def migrate_tickets(env, trac, local_repo, github_repo, converter):
                 labels=labels
             )
 
+        log.debug("Used labels: {labels}".format(labels=', '.join([l.name for l in labels])))
+        issue.add_to_labels(labels)
+
         # apply change log as comments/edits
         change_count = 0
-        for log_entry in sorted(trac.getTicketChangeLog(ticket_number), key='time'):
+        for log_entry in sorted(trac.getTicketChangeLog(ticket_number), key=lambda log: log['time']):
             comment_text = """
 **time:** {time}
 **author:** {author}
@@ -199,7 +202,7 @@ def migrate_tickets(env, trac, local_repo, github_repo, converter):
 
             change_count += 1
 
-        log.info("Migrated ticket #{ticket_number} with {change_count} log entries".format(ticket_number=ticket_number, change_count=change_count))
+        log.info("Migrated ticket #{ticket_number} with {change_count} log entries: {title}".format(ticket_number=ticket_number, change_count=change_count, title=issue.title))
 
 
 def _get_or_create_label(github, label_name, color=None):
@@ -381,6 +384,7 @@ if __name__ == '__main__':
     # main argument parser
     parser = argparse.ArgumentParser(conflict_handler='resolve')
     parser.add_argument('-c', '--config', help='path to the config file', default='config.yml')
+    parser.add_argument('-v', '--verbose', help='increase log level to TRACE', default=False, action='store_true')
     subparsers = parser.add_subparsers()
 
     # save-config
@@ -400,6 +404,11 @@ if __name__ == '__main__':
 
     # parse it...
     args = parser.parse_args()
+
+    # increase log level, if verbose flag is set
+    if args.verbose:
+        log.setLevel(logging.DEBUG)
+
     # loads config
     config = load_config(args.config)
 
