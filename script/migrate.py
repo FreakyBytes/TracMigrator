@@ -205,19 +205,30 @@ def migrate_tickets(env, trac, local_repo, github_repo, converter):
         log.info("Migrated ticket #{ticket_number} with {change_count} log entries: {title}".format(ticket_number=ticket_number, change_count=change_count, title=issue.title))
 
 
+# gh full_name -> label name -> label obj
+_label_cache = {}
 def _get_or_create_label(github, label_name, color=None):
     
     if not label_name:
         return None
+    
+    # check, if we got the label already cached
+    if github.full_name in _label_cache and _label_cache[github.full_name]:
+        if label_name in _label_cache[github.full_name] and _label_cache[github.full_name][label_name]:
+            return _label_cache[github.full_name][label_name]
+    else:
+        # not in cache, try to get it or create it
+        try:
+            label = github.get_label(label_name)
+        except:
+            if not color:
+                color = ''.join([random.choice('0123456789ABCDEF') for x in range(6)])
 
-    if not color:
-        color = ''.join([random.choice('0123456789ABCDEF') for x in range(6)])
+            log.info("Create label '{label}' with color #{color} for {repo_name}".format(label=label_name, color=color, repo_name=github.full_name))
+            label = github.create_label(label_name, color)
 
-    try:
-        return github.get_label(label_name)
-    except:
-        log.info("Create label '{label}' with color #{color} for {repo_name}".format(label=label_name, color=color, repo_name=github.full_name))
-        return github.create_label(label_name, color)
+        _label_cache[github.full_name][label_name] = label
+        return label
 
 
 def _create_fake_tickets(github, start=0, end=0):
