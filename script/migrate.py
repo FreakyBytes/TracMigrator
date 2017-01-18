@@ -86,7 +86,7 @@ def parse_repo_name(name, default_namespace=None):
     return (groups.get('namespace', default_namespace) or default_namespace, groups.get('repo', None))
 
 
-def migrate_project(env, github=None, create_repo=False):
+def migrate_project(args, env, github=None, create_repo=False):
 
     # open local git repo
     if not env['git_repository']:
@@ -135,19 +135,19 @@ def migrate_project(env, github=None, create_repo=False):
     # start the fun :)
     try:
         converter = migrate_wiki(env, trac, local_repo, github_repo)
-        migrate_tickets(env, trac, local_repo, github_repo, converter)
+        migrate_tickets(env, trac, local_repo, github_repo, converter, force=True if args.force_tickets is True else False)
     except BaseException as e:
         log.exception("Error while migrating Trac Env {trac_id}".format(trac_id=env['trac_id']))
 
 
-def migrate_tickets(env, trac, local_repo, github_repo, converter):
+def migrate_tickets(env, trac, local_repo, github_repo, converter, force=False):
     
     if not github_repo:
         log.warn("Skipping ticket migration, due to dry-run flag")
         return
 
     # check if tickets already exist at GitHub (if first is empty to be precise, because the raw pagination api does not support len() )
-    if len(github_repo.get_issues().get_page(0)) > 0 and False:
+    if len(github_repo.get_issues().get_page(0)) > 0 and force is False:
         # we cannot assure consistent ticket numbers, when already issues exist
         log.warn("GitHub project for Trac Env '{trac_id}' already contains issues. Skip ticket migration".format(trac_id=env['trac_id']))
         return
@@ -393,7 +393,7 @@ def do_migrate(args):
 
         # do the work
         log.info('Start migrating project {}'.format(env['trac_id']))
-        migrate_project(env, github=github, create_repo=args.create)
+        migrate_project(args, env, github=github, create_repo=args.create)
         count += 1
 
     log.info('Migrated {} projects'.format(count))
@@ -419,6 +419,7 @@ if __name__ == '__main__':
     migrate_parser = subparsers.add_parser('migrate', help="migrates the Trac repositories")
     migrate_parser.add_argument('--dry-run', help='does not push anything to GitHub', default=False, action='store_true')
     migrate_parser.add_argument('--create', help='creates all non-existing repositories on GitHub - this can get messy', default=False, action='store_true')
+    migrate_parser.add_argument('--force-tickets', help='forces the migration of tickets, even when the GitHub project already contains issues', default=False, action='store_true')
     migrate_parser.set_defaults(func=do_migrate)
 
     # parse it...
