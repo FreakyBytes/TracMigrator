@@ -15,7 +15,8 @@ import random
 import wiki
 import trac as tracapi
 
-from github.MainClass import Github, GithubException
+from github.MainClass import Github
+from github import GithubException
 import git
 
 logging.basicConfig(level=logging.WARN, format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s')
@@ -139,8 +140,12 @@ def migrate_project(args, env, github=None, create_repo=False):
 
     # start the fun :)
     try:
-        converter = migrate_wiki(env, trac, local_repo, github_repo)
-        migrate_tickets(env, trac, local_repo, github_repo, converter, force=True if args.force_tickets is True else False)
+        converter = migrate_wiki(env, trac, local_repo, github_repo, disabled=True if args.no_wiki else False)
+        if not args.no_tickets:
+            migrate_tickets(env, trac, local_repo, github_repo, converter, force=True if args.force_tickets is True else False)
+
+        # push the git repo
+        migrate_git_repo(env, trac, local_repo, github_repo)
     except BaseException as e:
         log.exception("Error while migrating Trac Env {trac_id}".format(trac_id=env['trac_id']))
 
@@ -220,8 +225,8 @@ def migrate_tickets(env, trac, local_repo, github_repo, converter, force=False):
                 break  # if everything went well, just break free
             except GithubException.GithubException as e:
                 if e.data['documentation_url'] == 'https://developer.github.com/v3#abuse-rate-limits':
-                    log.warn('triggered abuse rate limit. Wait {min} minutes'.format(min=config['github'].get('abuse_wait', 300)/60))
-                    time.sleep(float(config['github'].get('abuse_wait', 300))
+                    log.warn('triggered abuse rate limit. Wait {min.1f} minutes'.format(min=config['github'].get('abuse_wait', 300)/60))
+                    time.sleep(float(config['github'].get('abuse_wait', 300)))
                 else:
                     raise e
 
@@ -271,8 +276,22 @@ def _create_fake_tickets(github, start=0, end=0):
         issue.edit(state='closed')
 
 
-def migrate_wiki(env, trac, local_repo, github_repo):
+def migrate_wiki(env, trac, local_repo, github_repo, disabled=False):
     log.info("Start wiki conversion for Trac Env {trac_id}".format(trac_id=env['trac_id']))
+
+    # list all wiki pages in the trac env
+    wiki_pages = trac.listWikiPages()
+    log.debug("Found {num} wiki pages".format(num=len(wiki_pages)))
+
+    # init wiki->MarkDown converter
+    converter = wiki.WikiConverter(
+            pages={page: None for page in wiki_pages},  # currently not used
+            prefixes={trac_env['trac_id']: config['trac']['inter_trac_prefix'].format(**trac_env) for trac_env in config['environments']}  # generate prefix map, so inter_wiki links get properly redirected
+        )
+
+    if disabled:
+        # stop here, so only the converter gets initialized
+        return converter
 
     # step 1: cut a hole in the box / or create an orphan git branch ;)
     log.debug("Creating orphaned branch for wiki pages")
@@ -290,16 +309,6 @@ def migrate_wiki(env, trac, local_repo, github_repo):
             os.remove(file_path)
         except BaseException as e:
             log.warn("error while attempting to remove {f}".format(f=file_path))
-
-    # list all wiki pages in the trac env
-    wiki_pages = trac.listWikiPages()
-    log.debug("Found {num} wiki pages".format(num=len(wiki_pages)))
-
-    # init wiki->MarkDown converter
-    converter = wiki.WikiConverter(
-            pages={page: None for page in wiki_pages},  # currently not used
-            prefixes={trac_env['trac_id']: config['trac']['inter_trac_prefix'].format(**trac_env) for trac_env in config['environments']}  # generate prefix map, so inter_wiki links get properly redirected
-        )
 
     # iterate over all wiki pages
     for page in wiki_pages:
@@ -451,7 +460,9 @@ if __name__ == '__main__':
     migrate_parser = subparsers.add_parser('migrate', help="migrates the Trac repositories")
     migrate_parser.add_argument('--dry-run', help='does not push anything to GitHub', default=False, action='store_true')
     migrate_parser.add_argument('--create', help='creates all non-existing repositories on GitHub - this can get messy', default=False, action='store_true')
+    migrate_parser.add_argument('--no-wiki', help='disables the wiki migration', default=False, action='store_true')
     migrate_parser.add_argument('--force-tickets', help='forces the migration of tickets, even when the GitHub project already contains issues', default=False, action='store_true')
+    migrate_parser.add_argument('--no-tickets', help='disables the ticket migration', default=False, action='store_true')
     migrate_parser.set_defaults(func=do_migrate)
 
     # parse it...
