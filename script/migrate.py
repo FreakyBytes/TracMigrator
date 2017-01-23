@@ -4,6 +4,7 @@ main script for converting trac to github
 """
 
 import os
+import time
 import yaml
 import requests
 import argparse
@@ -14,7 +15,7 @@ import random
 import wiki
 import trac as tracapi
 
-from github.MainClass import Github
+from github.MainClass import Github, GithubException
 import git
 
 logging.basicConfig(level=logging.WARN, format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s')
@@ -37,6 +38,10 @@ def load_config(path):
     config = {
         'github': {
             'token': None,
+            'client_id': None,
+            'client_secret': None,
+            'wiki_branch': 'gh-pages',
+            'abuse_wait': 300,
             'default_namespace': None
         },
         'trac': {
@@ -204,12 +209,21 @@ def migrate_tickets(env, trac, local_repo, github_repo, converter, force=False):
             issue_text.append(comment_text)
             change_count += 1
 
-        # finally migrate the ticket
-        issue = github_repo.create_issue(
-                title=ticket['attributes']['summary'],
-                labels=issue_labels,
-                body='\n\n'.join(issue_text),
-            )
+        while True:
+            try:
+                # finally migrate the ticket
+                issue = github_repo.create_issue(
+                    title=ticket['attributes']['summary'],
+                    labels=issue_labels,
+                    body='\n\n'.join(issue_text),
+                )
+                break  # if everything went well, just break free
+            except GithubException.GithubException as e:
+                if e.data['documentation_url'] == 'https://developer.github.com/v3#abuse-rate-limits':
+                    log.warn('triggered abuse rate limit. Wait {min} minutes'.format(min=config['github'].get('abuse_wait', 300)/60))
+                    time.sleep(float(config['github'].get('abuse_wait', 300))
+                else:
+                    raise e
 
         if issue_state:
             issue.edit(state=issue_state)
