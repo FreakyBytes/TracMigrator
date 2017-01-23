@@ -56,7 +56,7 @@ def load_config(path):
                 'TracAccessibility', 'TracAdmin', 'TracBackup', 'TracBatchModify', 'TracBrowser', 'TracCgi', 'TracChangeset', 'TracEnvironment', 'TracFastCgi',
                 'TracFineGrainedPermissions', 'TracGuide', 'TracImport', 'TracIni', 'TracInstall', 'TracInterfaceCustomization', 'TracLinks', 'TracLogging',
                 'TracModPython', 'TracModWSGI', 'TracNavigation', 'TracNotification', 'TracPermissions', 'TracPlugins', 'TracQuery', 'TracReports',
-                'TracRespositoryAdmin', 'TracRevisionLog', 'TracRoadmap', 'TracRss', 'TracSearch', 'TracStandalone', 'TracSupport', 'TracSyntaxColoring',
+                'TracRepositoryAdmin', 'TracRevisionLog', 'TracRoadmap', 'TracRss', 'TracSearch', 'TracStandalone', 'TracSupport', 'TracSyntaxColoring',
                 'TracTicketsCustomFields', 'TracTickets', 'TracTimeline', 'TracUnicode', 'TracUpgrade', 'TracWiki', 'TracWorkflow', 'WikiDeletePage',
                 'WikiFormatting', 'WikiHtml', 'WikiMacros', 'WikiNewPage', 'WikiPageNames', 'WikiProcessors', 'WikiRestructuredText', 'WikiRestructuredTextLinks'],
             'wiki_start_page': 'WikiStart',
@@ -327,17 +327,11 @@ def migrate_wiki(env, trac, local_repo, github_repo, disabled=False):
 
         log.info("Convert wiki page {page} for Trac Env {trac_id}".format(page=page, trac_id=env['trac_id']))
         content = trac.getWikiPageText(page)
-        if page == config['trac']['wiki_start_page']:
-            # is WikiStart -> rename it to index
-            page_name = 'index'
-            log.debug("Renamed {page} to index, to serve as start page".format(page=page))
-        else:
-            page_name = page
 
         #import pdb; pdb.set_trace()
         if config['trac']['keep_wiki_files'] is True:
             # save wiki text as .wiki file
-            fs_name = os.path.join(repo_path, "{page}.wiki".format(page=page_name))
+            fs_name = os.path.join(repo_path, "{page}.wiki".format(page=page))
             os.makedirs(os.path.dirname(fs_name), exist_ok=True)
             with open(fs_name, 'w') as fs:
                 fs.write(content)
@@ -346,12 +340,21 @@ def migrate_wiki(env, trac, local_repo, github_repo, disabled=False):
 
         # convert it
         md = converter.convert(content)
-        fs_name = os.path.join(repo_path, "{page}.md".format(page=page_name))
+        fs_name = os.path.join(repo_path, "{page}.md".format(page=page))
         os.makedirs(os.path.dirname(fs_name), exist_ok=True)
         with open(fs_name, 'w') as fs:
             fs.write(md)
             fs.flush()
         local_repo.index.add([fs_name, ])
+
+        # link start page to index.md
+        if page == config['trac']['wiki_start_page']:
+            # is WikiStart -> create symlink to index.md
+            log.info("Link {page} to index.md, to serve as start page".format(page=page))
+            repo_dir_fd = os.open(repo_path, os.O_RDONLY)
+            os.symlink("{page}.md".format(page=page), "index.md", dir_fd=repo_dir_fd)
+            os.close(repo_dir_fd)
+            local_repo.index.add(["index.md", ])
 
         # fetch wiki attachements
         for attachement in trac.listWikiAttachements(page):
@@ -386,8 +389,8 @@ def migrate_git_repo(env, trac, local_repo, github_repo):
 
     # TODO add proper refspecs
     log.info("Push {local_repo} to {github_repo} for Trac Env {trac_id}".format(local_repo=local_repo.working_dir, github_repo=github_repo.full_name, trac_id=env['trac_id']))
-    refspec = '+refs/heads/*:refs/remotes/github/*'
-    remote.pull(refspec=refspec)
+    refspec = ''
+    #remote.pull(refspec=refspec)
     remote.push(refspec=refspec)
     log.info("Done pushing")
 
