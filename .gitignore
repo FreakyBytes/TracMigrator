@@ -4,5 +4,6 @@
 *.pyo
 __pycache__
 script/config.yml
+script/config.yml.bak
 script/config-sems.yml
 .ropeproject
