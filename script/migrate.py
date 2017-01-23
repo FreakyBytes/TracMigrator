@@ -49,7 +49,7 @@ def load_config(path):
         },
         'environments': [],
     }
-    
+
     try:
         with open(path, 'r') as fs:
             config.update(yaml.safe_load(fs))
@@ -81,7 +81,7 @@ def parse_repo_name(name, default_namespace=None):
     match = _re_github_repo_name.match(name)
     if not match:
         return (None, None)
-    
+
     groups = match.groupdict()
     return (groups.get('namespace', default_namespace) or default_namespace, groups.get('repo', None))
 
@@ -123,12 +123,12 @@ def migrate_project(args, env, github=None, create_repo=False):
                     # create repo under current user
                     github_repo = github.get_user().create_repo(repo_path[1], has_issues=True, has_wiki=False, auto_init=False)
                 log.info("Created GitHub Repo {repo_name}".format(repo_name=github_repo.full_name))
-            else: 
+            else:
                 log.error("Could not get GitHub Repo {repo_name} for Trac Env {trac_id}".format(repo_name=repo_name, trac_id=env['trac_id']))
                 return
     else:
         github_repo = None
-    
+
     # init Trac api object
     trac = tracapi.Trac(config['trac']['base_url'], env['trac_id'], user=config['trac']['user'], password=config['trac']['password'], timeout=config['trac']['timeout'])
 
@@ -141,7 +141,7 @@ def migrate_project(args, env, github=None, create_repo=False):
 
 
 def migrate_tickets(env, trac, local_repo, github_repo, converter, force=False):
-    
+
     if not github_repo:
         log.warn("Skipping ticket migration, due to dry-run flag")
         return
@@ -165,15 +165,15 @@ def migrate_tickets(env, trac, local_repo, github_repo, converter, force=False):
         # prepare the labels
         label_names = [ticket['attributes']['component'], ticket['attributes']['milestone'], ticket['attributes']['type'], ticket['attributes']['version'], ticket['attributes']['priority'], ticket['attributes']['resolution']] + ticket['attributes']['keywords'].split(',')
         log.debug("Raw label names: {labels}".format(labels=', '.join(label_names)))
-        labels = [_get_or_create_label(github_repo, name) for name in label_names] + [migration_label]
-        labels = filter(None, labels)  # filter away all Nones
-        log.debug("Used labels: {labels}".format(labels=', '.join([l.name for l in labels])))
-        
-        # teh ticket itself
-        issue = github_repo.create_issue(
-                title=ticket['attributes']['summary'],
-                labels=labels,
-                body="""**component:** {component}
+        issue_labels = [_get_or_create_label(github_repo, name) for name in label_names] + [migration_label]
+        issue_labels = list(filter(None, issue_labels))  # filter away all Nones
+        log.debug("Used labels: {labels}".format(labels=', '.join([l.name for l in issue_labels])))
+
+        #import pdb; pdb.set_trace()
+
+        issue_text = []
+        issue_text.append("""## Trac Ticket #{ticket_number}
+**component:** {component}
 **owner:** {owner}
 **reporter:** {reporter}
 **created:** {time_created}
@@ -182,37 +182,48 @@ def migrate_tickets(env, trac, local_repo, github_repo, converter, force=False):
 **version:** {version}
 **keywords:** {keywords}
 
-{description}""".format(time_created=ticket['time_created'], time_changed=ticket['time_changed'], **ticket['attributes']),
-            )
-        
+{description}""".format(ticket_number=ticket_number, time_created=ticket['time_created'], time_changed=ticket['time_changed'], **ticket['attributes']))
+
         # apply change log as comments/edits
-        change_count = 0
+        change_count = 1
+        issue_state = None
         for log_entry in sorted(trac.getTicketChangeLog(ticket_number), key=lambda log: log['time']):
-            comment_text = """
+            comment_text = """## comment {no}
 **time:** {time}
 **author:** {author}
-""".format(**log_entry)
+""".format(no=change_count, **log_entry)
+
             if log_entry['field'] == 'comment':
-                comment_text = comment_text + "\n\n" + converter.convert(log_entry['new_value'])
+                comment_text = comment_text + "\n\n" + converter.convert(log_entry['new_value'] + "\n")
             else:
-                comment_text = comment_text + "\nUpdated **{field}** to **{new_value}**".format(**log_entry)
+                comment_text = comment_text + "\nUpdated **{field}** to **{new_value}**\n".format(**log_entry)
 
-            issue.create_comment(comment_text)
             if log_entry['field'] == 'status':
-                issue.edit(state=_ticket_state[log_entry['new_value']])
+                issue_state = _ticket_state[log_entry['new_value']]
 
+            issue_text.append(comment_text)
             change_count += 1
 
-        log.info("Migrated ticket #{ticket_number} with {change_count} log entries: {title}".format(ticket_number=ticket_number, change_count=change_count, title=issue.title))
+        # finally migrate the ticket
+        issue = github_repo.create_issue(
+                title=ticket['attributes']['summary'],
+                labels=issue_labels,
+                body='\n\n'.join(issue_text),
+            )
+
+        if issue_state:
+            issue.edit(state=issue_state)
+
+        log.info("Migrated ticket #{ticket_number} with {change_count} log entries: {title}".format(ticket_number=ticket_number, change_count=change_count-1, title=issue.title))
 
 
 # gh full_name -> label name -> label obj
 _label_cache = {}
 def _get_or_create_label(github, label_name, color=None):
-    
+
     if not label_name:
         return None
-    
+
     # check, if we got the label already cached
     label = None
     if github.full_name in _label_cache and _label_cache[github.full_name]:
@@ -229,7 +240,7 @@ def _get_or_create_label(github, label_name, color=None):
 
             log.info("Create label '{label}' with color #{color} for {repo_name}".format(label=label_name, color=color, repo_name=github.full_name))
             label = github.create_label(label_name, color)
-        
+
         if github.full_name not in _label_cache:
             _label_cache[github.full_name] = {label_name: label}
         else:
@@ -239,7 +250,7 @@ def _get_or_create_label(github, label_name, color=None):
 
 
 def _create_fake_tickets(github, start=0, end=0):
-    
+
     log.info("Create {num} fake issues".format(num=end-start))
     for idx in range(start, end):
         issue = github.create_issue("Deleted Trac Ticket #{no}".format(no=idx))
@@ -277,7 +288,6 @@ def migrate_wiki(env, trac, local_repo, github_repo):
         )
 
     # iterate over all wiki pages
-    return converter  # TODO
     for page in wiki_pages:
         log.info("Convert wiki page {page} for Trac Env {trac_id}".format(page=page, trac_id=env['trac_id']))
         content = trac.getWikiPageText(page)
@@ -318,11 +328,11 @@ def migrate_wiki(env, trac, local_repo, github_repo):
 
 
 def migrate_git_repo(env, trac, local_repo, github_repo):
-    
+
     if not github_repo:
         log.warn("Skip git migration, due to dry-run flag")
         return
-    
+
     # create a new remote, and if exists, checks the url
     log.info("Update git remote configuration for {local_repo}".format(local_repo=local_repo.working_dir))
     try:
@@ -360,16 +370,16 @@ def do_get_envs(args):
         for index, env in enumerate(config['environments']):
             if env['trac_id']:
                 env_map[env['trac_id']] = index
-        
+
     count = 0
-    for env in  trac.listTracEnvironments(config['trac']['base_url'], timeout=config['trac']['timeout']):
+    for env in trac.listTracEnvironments(config['trac']['base_url'], timeout=config['trac']['timeout']):
         log.info('Found Trac environment {id}'.format(id=env['trac_id']))
         if env['trac_id'] in env_map:
             continue
 
         config['environments'].append(env)
         count += 1
-    
+
     log.info('Found {} new Trac environments'.format(count))
     save_config(args.config, config)
 
@@ -379,10 +389,7 @@ def do_migrate(args):
     if args.dry_run is False:
         # results are supposed to be pushed to github (default)
         # better check if github is reachable
-        github = Github(config['github']['token'])
-        if not github.get_user():
-            log.error('Error accessing GitHub')
-            return
+        github = _login_github(config['github'])
     else:
         github = None
 
@@ -397,6 +404,17 @@ def do_migrate(args):
         count += 1
 
     log.info('Migrated {} projects'.format(count))
+
+
+def _login_github(github_config):
+
+    github = Github(github_config['token'], client_id=github_config.get('client_id', None), client_secret=github_config.get('client_secret', None))
+
+    if not github.get_user():
+        log.error('Error accessing GitHub')
+        raise RuntimeError('Could not login to Github')
+
+    return github
 
 
 if __name__ == '__main__':

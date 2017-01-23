@@ -5,3 +5,4 @@
 __pycache__
 script/config.yml
 script/config-sems.yml
+.ropeproject
