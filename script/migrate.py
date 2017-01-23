@@ -52,6 +52,14 @@ def load_config(path):
             'password': None,
             'inter_trac_prefix': 'http://example.org/{trac_id}/wiki/',
             'keep_wiki_files': False,
+            'wiki_filter_pages': ['CamelCase', 'InterMapTxt', 'InterTrac', 'InterWiki', 'PageTemplates', 'RecentChanges', 'SandBox', 'TitleIndex',
+                'TracAccessibility', 'TracAdmin', 'TracBackup', 'TracBatchModify', 'TracBrowser', 'TracCgi', 'TracChangeset', 'TracEnvironment', 'TracFastCgi',
+                'TracFineGrainedPermissions', 'TracGuide', 'TracImport', 'TracIni', 'TracInstall', 'TracInterfaceCustomization', 'TracLinks', 'TracLogging',
+                'TracModPython', 'TracModWSGI', 'TracNavigation', 'TracNotification', 'TracPermission', 'TracPlugins', 'TracQuery', 'TracReports',
+                'TracRespositoryAdmin', 'TracRevisionLog', 'TracRoadmap', 'TracRss', 'TracSearch', 'TracStandalone', 'TracSupport', 'TracSyntaxColoring',
+                'TracTicketsCustomFields', 'TrackTickets', 'TracTimeline', 'TracUnicode', 'TracUpgrade', 'TracWiki', 'TracWorkflow', 'WikiDeletePage',
+                'WikiFormatting', 'WikiHtml', 'WikiMacros', 'WikiNewPage', 'WikiPageNames', 'WikiProcessors', 'WikiRestructuredText', 'WikiRestructuredTextLinks'],
+            'wiki_start_page': 'WikiStart',
         },
         'environments': [],
     }
@@ -312,13 +320,24 @@ def migrate_wiki(env, trac, local_repo, github_repo, disabled=False):
 
     # iterate over all wiki pages
     for page in wiki_pages:
+        # skip default trac wiki pages. They cause problems and are not
+        # necessary anymore...
+        if page in config['trac']['wiki_filter_pages']:
+            continue
+
         log.info("Convert wiki page {page} for Trac Env {trac_id}".format(page=page, trac_id=env['trac_id']))
         content = trac.getWikiPageText(page)
+        if page == config['trac']['wiki_start_page']:
+            # is WikiStart -> rename it to index
+            page_name = 'index'
+            log.debug("Renamed {page} to index, to serve as start page".format(page=page))
+        else:
+            page_name = page
 
         #import pdb; pdb.set_trace()
         if config['trac']['keep_wiki_files'] is True:
             # save wiki text as .wiki file
-            fs_name = os.path.join(repo_path, "{page}.wiki".format(page=page))
+            fs_name = os.path.join(repo_path, "{page}.wiki".format(page=page_name))
             os.makedirs(os.path.dirname(fs_name), exist_ok=True)
             with open(fs_name, 'w') as fs:
                 fs.write(content)
@@ -327,7 +346,7 @@ def migrate_wiki(env, trac, local_repo, github_repo, disabled=False):
 
         # convert it
         md = converter.convert(content)
-        fs_name = os.path.join(repo_path, "{page}.md".format(page=page))
+        fs_name = os.path.join(repo_path, "{page}.md".format(page=page_name))
         os.makedirs(os.path.dirname(fs_name), exist_ok=True)
         with open(fs_name, 'w') as fs:
             fs.write(md)
