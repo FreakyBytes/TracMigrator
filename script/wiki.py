@@ -18,8 +18,8 @@ class WikiConverter(object):
     _re_codeblock = re.compile(r'(?:(?<!\\)\{){3}([\r\n\s]*\#\!(?P<shebang>[ \w\=\"\']+)$)?(?P<code>.*?)(?:(?<!\\)\}){3}', re.IGNORECASE | re.MULTILINE | re.DOTALL | re.UNICODE)
     _re_text_style = re.compile(r'(?P<prefix>(?:(?:(?<!\\)\'){2,3}){1,2})(?P<text>.*?)(?P=prefix)', re.IGNORECASE | re.MULTILINE | re.DOTALL | re.UNICODE)
     _re_headlines = re.compile(r'^(?P<level>((?<!\\)=)+)\s*(?P<title>[^=]+)\s*(?P=level)\s*$', re.IGNORECASE | re.MULTILINE | re.UNICODE)
-    _re_marked_links = re.compile(r'(?:[^\!]|^)\[{1,2}(?:(?P<macro>\w+)\()?(?P<link>[^ |\[\]]+)(?(macro)\))(?:[ |](?P<name>[\s\w]+?))?\]{1,2}', re.IGNORECASE | re.MULTILINE | re.UNICODE)
-    _re_inline_links = re.compile(r'(?P<escape>[\!\(\[]|^)(?#target)(?:(?P<target>[a-zA-Z0-9-_]+):)??(?# target end / link type)(?:(?P<linktype>wiki|ticket|report|changeset):)?(?# type end / actual name w/ opt dbl quotes)(?P<quoting>\"?)(?P<name>(?(linktype)[a-zA-Z0-9-_#]+|(?:[A-Z#][a-z0-9-_#]+){2,}))+(?P=quoting)', re.MULTILINE | re.UNICODE)
+    _re_marked_links = re.compile(r'(?=[^\!]|^)\[{1,2}(?:(?P<macro>\w+)\()?(?P<link>[^ |\[\]]+)(?(macro)\))(?:[ |](?P<name>[\s\w]+?))?\]{1,2}', re.IGNORECASE | re.MULTILINE | re.UNICODE)
+    _re_inline_links = re.compile(r'(?:(?<![\!\(\[])|^)(?#target)(?:(?P<target>[a-zA-Z0-9\-_]+):)??(?# target end / link type)(?:(?P<linktype>wiki|ticket|report|changeset|source):)?(?# type end / actual name w/ opt dbl quotes)(?P<quoting>\"?)(?P<name>(?(linktype)[a-zA-Z0-9\-_#\/]+|(?:[A-Z#][a-z0-9\-_#\/]+){2,}))+(?P=quoting)', re.MULTILINE | re.UNICODE)
     _re_breaklines = re.compile(r'(?:[^\!]|^)(\\{2}|\[{2}br\]{2})', re.IGNORECASE | re.MULTILINE | re.UNICODE)
     _re_code_placeholder = re.compile(r'%%%%%%%%{(?P<hash>[a-f0-9]+)}%%%%%%%%', re.IGNORECASE | re.MULTILINE | re.UNICODE)
 
@@ -106,7 +106,7 @@ class WikiConverter(object):
         else:
             return "{prefix}{link_type}/{link}".format(
                     prefix=self.prefixes.get(groups.get('target', None), ''),
-                    link_type=groups.get('type', 'wiki'),
+                    link_type=groups.get('type', ''),
                     link=groups.get('name', ''),
                 )
 
