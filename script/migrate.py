@@ -66,7 +66,12 @@ def load_config(path):
 
     try:
         with open(path, 'r') as fs:
-            config.update(yaml.safe_load(fs))
+            loaded_config = yaml.safe_load(fs)
+
+        config['trac'].update(loaded_config.get('trac', {}))
+        config['github'].update(loaded_config.get('github', {}))
+        if 'environments' in loaded_config and isinstance(loaded_config['environments'], (list, tuple)):
+            config['environments'] = loaded_config['enviroments']
     except:
         log.warn('Failed loading config {path}. Using default values'.format(path=path))
 
@@ -153,7 +158,8 @@ def migrate_project(args, env, github=None, create_repo=False):
             migrate_tickets(env, trac, local_repo, github_repo, converter, force=True if args.force_tickets is True else False)
 
         # push the git repo
-        migrate_git_repo(env, trac, local_repo, github_repo)
+        if not args.no_push:
+            migrate_git_repo(env, trac, local_repo, github_repo)
     except BaseException as e:
         log.exception("Error while migrating Trac Env {trac_id}".format(trac_id=env['trac_id']))
 
@@ -407,7 +413,7 @@ def do_get_envs(args):
     # get available envs and store them in the config
 
     env_map = {}
-    if args.override is True:
+    if args.override is True or 'environments' not in config or not config['environments']:
         # remove old environments from config
         config['environments'] = []
     else:
@@ -417,7 +423,7 @@ def do_get_envs(args):
                 env_map[env['trac_id']] = index
 
     count = 0
-    for env in trac.listTracEnvironments(config['trac']['base_url'], timeout=config['trac']['timeout']):
+    for env in tracapi.listTracEnvironments(config['trac']['base_url'], timeout=config['trac']['timeout']):
         log.info('Found Trac environment {id}'.format(id=env['trac_id']))
         if env['trac_id'] in env_map:
             continue
@@ -485,6 +491,7 @@ if __name__ == '__main__':
     migrate_parser.add_argument('--no-wiki', help='disables the wiki migration', default=False, action='store_true')
     migrate_parser.add_argument('--force-tickets', help='forces the migration of tickets, even when the GitHub project already contains issues', default=False, action='store_true')
     migrate_parser.add_argument('--no-tickets', help='disables the ticket migration', default=False, action='store_true')
+    migrate_parser.add_argument('--no-push', help='does not push the repository to github', default=False, action='store_true')
     migrate_parser.set_defaults(func=do_migrate)
 
     # parse it...
