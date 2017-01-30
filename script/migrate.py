@@ -4,6 +4,7 @@ main script for converting trac to github
 """
 
 import os
+import sys
 import time
 import yaml
 import requests
@@ -19,9 +20,23 @@ from github.MainClass import Github
 from github import GithubException
 import git
 
-logging.basicConfig(level=logging.WARN, format='%(asctime)s %(name)-12s %(levelname)-8s %(message)s')
+# logging.basicConfig(level=logging.WARN)
+_log_root = logging.getLogger()
+_log_format = logging.Formatter('%(asctime)s %(name)-12s %(levelname)-8s %(message)s')
+
+# setting up different log outputs (file and stdout)
+_log_file_handler = logging.FileHandler('migrate.log')
+_log_file_handler.setFormatter(_log_format)
+_log_root.addHandler(_log_file_handler)
+
+_log_stream_handler = logging.StreamHandler(sys.stdout)
+_log_stream_handler.setFormatter(_log_format)
+_log_root.addHandler(_log_stream_handler)
+
+# get the logger for this application
 log = logging.getLogger('TracMigrator')
 log.setLevel(logging.INFO)
+
 
 # regex to analyse GitHub repo ids (e.g. FreakyBytes/TracMigrator, or just TracMigrator)
 _re_github_repo_name = re.compile(r'^(?:(?P<namespace>[\w\d\-_]+)/)?(?P<repo>[\w\d\-_]+)$', re.IGNORECASE | re.UNICODE)
@@ -34,6 +49,7 @@ _ticket_state = {
     'accepted': 'open',
     'closed': 'closed',
 }
+
 
 def load_config(path):
     config = {
@@ -71,9 +87,9 @@ def load_config(path):
         config['trac'].update(loaded_config.get('trac', {}))
         config['github'].update(loaded_config.get('github', {}))
         if 'environments' in loaded_config and isinstance(loaded_config['environments'], (list, tuple)):
-            config['environments'] = loaded_config['enviroments']
+            config['environments'] = loaded_config['environments']
     except:
-        log.warn('Failed loading config {path}. Using default values'.format(path=path))
+        log.exception('Failed loading config {path}. Using default values'.format(path=path))
 
     return config
 
@@ -155,16 +171,22 @@ def migrate_project(args, env, github=None, create_repo=False):
     try:
         converter = migrate_wiki(env, trac, local_repo, github_repo, disabled=True if args.no_wiki else False)
         if not args.no_tickets:
-            migrate_tickets(env, trac, local_repo, github_repo, converter, force=True if args.force_tickets is True else False)
+            migrate_tickets(env, trac, local_repo, github_repo, converter,
+                    force=True if args.force_tickets is True else False,
+                    continue_mode=True if args.continue_tickets is True else False)
 
         # push the git repo
         if not args.no_push:
             migrate_git_repo(env, trac, local_repo, github_repo)
-    except BaseException as e:
+    except KeyboardInterrupt:
+        # migration was aborted by user
+        log.warn("Execution was interrupted by user")
+        return
+    except BaseException:
         log.exception("Error while migrating Trac Env {trac_id}".format(trac_id=env['trac_id']))
 
 
-def migrate_tickets(env, trac, local_repo, github_repo, converter, force=False):
+def migrate_tickets(env, trac, local_repo, github_repo, converter, continue_mode=False, force=False):
 
     if not github_repo:
         log.warn("Skipping ticket migration, due to dry-run flag")
@@ -176,7 +198,7 @@ def migrate_tickets(env, trac, local_repo, github_repo, converter, force=False):
         github_repo.edit(name=github_repo.name, has_issues=True)
 
     # check if tickets already exist at GitHub (if first is empty to be precise, because the raw pagination api does not support len() )
-    if len(github_repo.get_issues().get_page(0)) > 0 and force is False:
+    if len(github_repo.get_issues().get_page(0)) > 0 and force is False and continue_mode is False:
         # we cannot assure consistent ticket numbers, when already issues exist
         log.warn("GitHub project for Trac Env '{trac_id}' already contains issues. Skip ticket migration".format(trac_id=env['trac_id']))
         return
@@ -184,6 +206,21 @@ def migrate_tickets(env, trac, local_repo, github_repo, converter, force=False):
     migration_label = _get_or_create_label(github_repo, 'migrated', '662200')  # brown
     ticket_count = 1
     for ticket_number in trac.listTickets():
+
+        # for continue mode, check if ticket already exists in GitHub
+        if continue_mode is True:
+            try:
+                # try to get the ticket, if this succeeds skip this ticket
+                github_repo.get_issue(ticket_number)
+                log.info("Found issue #{ticket_number}, skip migration for this".format(ticket_number=ticket_number))
+                continue
+            except KeyboardInterrupt:
+                # user abort -> propagate upwards
+                raise KeyboardInterrupt
+            except:
+                # cannot get ticket/issue, so it might not exist
+                pass
+
         ticket = trac.getTicket(ticket_number)
         log.info("Migrate ticket #{ticket_number}".format(ticket_number=ticket_number))
 
@@ -242,8 +279,8 @@ def migrate_tickets(env, trac, local_repo, github_repo, converter, force=False):
                     body='\n\n'.join(issue_text),
                 )
                 break  # if everything went well, just break free
-            except GithubException.GithubException as e:
-                if e.data['documentation_url'] == 'https://developer.github.com/v3#abuse-rate-limits':
+            except GithubException as e:
+                if e.data.get('documentation_url', True) in ('https://developer.github.com/v3#abuse-rate-limits', True):
                     log.warn('triggered abuse rate limit. Wait {min.1f} minutes'.format(min=config['github'].get('abuse_wait', 300)/60))
                     time.sleep(float(config['github'].get('abuse_wait', 300)))
                 else:
@@ -311,6 +348,13 @@ def migrate_wiki(env, trac, local_repo, github_repo, disabled=False):
     if disabled:
         # stop here, so only the converter gets initialized
         return converter
+
+    # step 0: check if wiki branch already exists
+    for branch in local_repo.branches:
+        if branch.name == config['github'].get('wiki_branch', 'gh-pages'):
+            log.info("wiki branch already exists for this repo. Skip wiki migration")
+            # just make sure, the converter is returned
+            return converter
 
     # step 1: cut a hole in the box / or create an orphan git branch ;)
     log.debug("Creating orphaned branch for wiki pages")
@@ -495,6 +539,7 @@ if __name__ == '__main__':
     migrate_parser.add_argument('--create', help='creates all non-existing repositories on GitHub - this can get messy', default=False, action='store_true')
     migrate_parser.add_argument('--no-wiki', help='disables the wiki migration', default=False, action='store_true')
     migrate_parser.add_argument('--force-tickets', help='forces the migration of tickets, even when the GitHub project already contains issues', default=False, action='store_true')
+    migrate_parser.add_argument('--continue-tickets', help='Checks if a ticket/issue number already exists, before migration it. DOES NOT check/alter the content of existing issues', default=False, action='store_true')
     migrate_parser.add_argument('--no-tickets', help='disables the ticket migration', default=False, action='store_true')
     migrate_parser.add_argument('--no-push', help='does not push the repository to github', default=False, action='store_true')
     migrate_parser.set_defaults(func=do_migrate)
