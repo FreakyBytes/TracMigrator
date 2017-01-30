@@ -170,6 +170,11 @@ def migrate_tickets(env, trac, local_repo, github_repo, converter, force=False):
         log.warn("Skipping ticket migration, due to dry-run flag")
         return
 
+    # ensure GitHub issues are enabled
+    if not github_repo.has_issues:
+        # name is required by GitHub Api
+        github_repo.edit(name=github_repo.name, has_issues=True)
+
     # check if tickets already exist at GitHub (if first is empty to be precise, because the raw pagination api does not support len() )
     if len(github_repo.get_issues().get_page(0)) > 0 and force is False:
         # we cannot assure consistent ticket numbers, when already issues exist
