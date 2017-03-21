@@ -415,7 +415,7 @@ def migrate_wiki(env, trac, local_repo, github_repo, disabled=False):
         for attachement in trac.listWikiAttachements(page):
             fs_name = os.path.join(repo_path, attachement)
             os.makedirs(os.path.dirname(fs_name), exist_ok=True)
-            with open(fs_name, 'w') as fs:
+            with open(fs_name, 'wb') as fs:
                 log.debug("Store Wiki Attachement {att} for page {page}".format(att=attachement, page=page))
                 fs.write(trac.getWikiAttachement(attachement))
                 fs.flush()
